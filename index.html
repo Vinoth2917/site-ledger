@@ -24,6 +24,7 @@
     --accent-dark:#A5441F;
     --muted:#6B6558;
     --danger:#8B3A2E;
+    --link:#4A6FA5;
     --radius:3px;
   }
   *{box-sizing:border-box;}
@@ -48,38 +49,13 @@
     gap:12px;
     border-bottom:3px solid var(--accent);
   }
-  .brand{
-    display:flex;
-    align-items:baseline;
-    gap:10px;
-  }
-  .brand .mark{
-    font-family:'Zilla Slab', serif;
-    font-weight:700;
-    font-size:22px;
-    letter-spacing:0.3px;
-  }
-  .brand .sub{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:11px;
-    color:#B9B4A2;
-    letter-spacing:0.5px;
-  }
-  .stats{
-    display:flex;
-    gap:26px;
-  }
+  .brand{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .brand .mark{ font-family:'Zilla Slab', serif; font-weight:700; font-size:22px; letter-spacing:0.3px; }
+  .brand .sub{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:#B9B4A2; letter-spacing:0.5px; }
+  .stats{ display:flex; gap:26px; }
   .stat{ text-align:right; }
-  .stat .label{
-    font-size:10.5px;
-    color:#B9B4A2;
-    letter-spacing:0.4px;
-  }
-  .stat .value{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:19px;
-    font-weight:600;
-  }
+  .stat .label{ font-size:10.5px; color:#B9B4A2; letter-spacing:0.4px; }
+  .stat .value{ font-family:'IBM Plex Mono', monospace; font-size:19px; font-weight:600; }
   .stat.credit .value{ color:#7FC4B3; }
   .stat.debit .value{ color:#E39C8D; }
   .stat.balance .value{ color:#F3F4F0; }
@@ -87,10 +63,7 @@
   .user-badge{ display:flex; align-items:center; gap:8px; margin-left:16px; }
   .user-badge img{ width:26px; height:26px; border-radius:50%; }
   .user-badge .uname{ font-size:12px; color:#EDEBE3; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .user-badge button{
-    background:transparent; border:1px solid #4A5A72; color:#B9B4A2;
-    padding:4px 10px; font-size:11.5px; font-weight:500;
-  }
+  .user-badge button{ background:transparent; border:1px solid #4A5A72; color:#B9B4A2; padding:4px 10px; font-size:11.5px; font-weight:500; }
   .user-badge button:hover{ background:#22314A; color:#EDEBE3; }
 
   /* ---------- Sign-in gate ---------- */
@@ -115,244 +88,123 @@
   #setupNotice code{ background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px; }
 
   /* ---------- Layout ---------- */
-  .shell{
-    display:flex;
-    min-height:calc(100vh - 68px);
-  }
+  .shell{ display:flex; min-height:calc(100vh - 68px); }
   nav.sidebar{
-    width:250px;
-    flex-shrink:0;
-    background:#ECEAE2;
-    border-right:1px solid var(--line);
-    padding:16px 0;
-    display:flex;
-    flex-direction:column;
-  }
-  .nav-section-label{
-    font-size:10.5px;
-    color:var(--muted);
-    letter-spacing:0.5px;
-    padding:6px 18px;
-    margin-top:6px;
+    width:260px; flex-shrink:0; background:#ECEAE2; border-right:1px solid var(--line);
+    padding:12px 0 20px; display:flex; flex-direction:column; overflow-y:auto;
   }
   .nav-item{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:9px 18px;
-    cursor:pointer;
-    border-left:3px solid transparent;
-    font-size:14px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:9px 18px; cursor:pointer; border-left:3px solid transparent; font-size:14px;
   }
   .nav-item:hover{ background:#E3E0D5; }
-  .nav-item.active{
-    border-left:3px solid var(--accent);
-    background:var(--paper);
-    font-weight:600;
-  }
-  .nav-item .bal{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12.5px;
-  }
+  .nav-item.active{ border-left:3px solid var(--accent); background:var(--paper); font-weight:600; }
+  .nav-item .bal{ font-family:'IBM Plex Mono', monospace; font-size:12px; }
   .nav-item .bal.pos{ color:var(--credit); }
   .nav-item .bal.neg{ color:var(--debit); }
+  .nav-top{ border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:8px; }
 
-  .add-client-row{
-    margin-top:auto;
-    padding:14px 18px 4px;
-    border-top:1px solid var(--line);
+  .section-group{ border-bottom:1px solid var(--line); }
+  .section-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:11px 18px; cursor:pointer; font-size:11.5px; font-weight:700;
+    letter-spacing:0.4px; color:var(--ink-soft);
   }
-  .add-client-row input{
-    width:100%;
-    margin-bottom:6px;
-  }
+  .section-head:hover{ background:#E3E0D5; }
+  .section-head .caret{ font-size:10px; color:var(--muted); transition:transform .15s; }
+  .section-head.open .caret{ transform:rotate(90deg); }
+  .section-body{ display:none; padding-bottom:6px; }
+  .section-body.open{ display:block; }
+  .section-body .nav-item{ padding-left:28px; font-size:13.5px; }
+  .add-account-row{ padding:6px 18px 10px 28px; display:flex; gap:6px; }
+  .add-account-row input{ flex:1; font-size:12.5px; padding:6px 8px; min-width:0; }
+  .add-account-row button{ padding:6px 9px; font-size:12px; }
 
-  main.content{
-    flex:1;
-    padding:28px 32px 60px;
-    max-width:980px;
-  }
+  main.content{ flex:1; padding:28px 32px 60px; max-width:1000px; }
 
   /* ---------- Form controls ---------- */
   input, select{
-    font-family:'IBM Plex Sans', sans-serif;
-    font-size:14px;
-    padding:8px 10px;
-    border:1px solid var(--line-strong);
-    border-radius:var(--radius);
-    background:var(--paper-raised);
-    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif; font-size:14px; padding:8px 10px;
+    border:1px solid var(--line-strong); border-radius:var(--radius);
+    background:var(--paper-raised); color:var(--ink);
   }
-  input:focus, select:focus{
-    outline:2px solid var(--accent);
-    outline-offset:1px;
-    border-color:var(--accent);
-  }
+  input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
   button{
-    font-family:'IBM Plex Sans', sans-serif;
-    font-size:13.5px;
-    font-weight:600;
-    padding:8px 14px;
-    border-radius:var(--radius);
-    border:1px solid var(--accent);
-    background:var(--accent);
-    color:#fff;
-    cursor:pointer;
-    letter-spacing:0.2px;
+    font-family:'IBM Plex Sans', sans-serif; font-size:13.5px; font-weight:600;
+    padding:8px 14px; border-radius:var(--radius); border:1px solid var(--accent);
+    background:var(--accent); color:#fff; cursor:pointer; letter-spacing:0.2px;
   }
   button:hover{ background:var(--accent-dark); border-color:var(--accent-dark); }
-  button.ghost{
-    background:transparent;
-    color:var(--ink);
-    border:1px solid var(--line-strong);
-  }
+  button.ghost{ background:transparent; color:var(--ink); border:1px solid var(--line-strong); }
   button.ghost:hover{ background:#EAE7DC; }
   button.small{ padding:5px 9px; font-size:12px; }
-  button.link{
-    background:none; border:none; color:var(--accent); padding:0;
-    font-weight:600; text-decoration:underline; cursor:pointer;
+
+  /* ---------- Page header / balance ---------- */
+  .page-header{
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:2px solid var(--ink); padding-bottom:10px; margin-bottom:20px; flex-wrap:wrap; gap:10px;
+  }
+  .page-header h1{ font-family:'Zilla Slab', serif; font-size:27px; margin:0; font-weight:700; }
+  .page-balance{ font-family:'IBM Plex Mono', monospace; font-size:21px; font-weight:600; }
+  .page-balance.pos{ color:var(--credit); }
+  .page-balance.neg{ color:var(--debit); }
+  .page-balance .tag{ display:block; font-size:10.5px; font-family:'IBM Plex Sans', sans-serif; color:var(--muted); font-weight:500; letter-spacing:0.3px; }
+
+  .subledger-tabs{ display:flex; gap:4px; margin-bottom:18px; }
+  .subledger-tabs button{
+    background:var(--paper-raised); color:var(--ink); border:1px solid var(--line-strong);
+  }
+  .subledger-tabs button.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  h1.page-title{
+    font-family:'Zilla Slab', serif; font-size:26px; font-weight:700; margin:0 0 18px;
+    border-bottom:2px solid var(--ink); padding-bottom:10px;
   }
 
-  /* ---------- Client page ---------- */
-  .client-header{
-    display:flex;
-    align-items:baseline;
-    justify-content:space-between;
-    border-bottom:2px solid var(--ink);
-    padding-bottom:10px;
-    margin-bottom:22px;
-    flex-wrap:wrap;
-    gap:10px;
-  }
-  .client-header h1{
-    font-family:'Zilla Slab', serif;
-    font-size:28px;
-    margin:0;
-    font-weight:700;
-  }
-  .client-balance{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:22px;
-    font-weight:600;
-  }
-  .client-balance.pos{ color:var(--credit); }
-  .client-balance.neg{ color:var(--debit); }
-  .client-balance .tag{
-    display:block;
-    font-size:10.5px;
-    font-family:'IBM Plex Sans', sans-serif;
-    color:var(--muted);
-    font-weight:500;
-    letter-spacing:0.3px;
-  }
-
-  .entry-form{
-    background:var(--paper-raised);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    padding:16px 18px;
-    margin-bottom:26px;
-  }
-  .entry-form .row{
-    display:flex;
-    gap:14px;
-    flex-wrap:wrap;
-    align-items:flex-end;
-    margin-bottom:12px;
-  }
+  /* ---------- Daily entry form ---------- */
+  .entry-form{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; margin-bottom:26px; max-width:720px; }
+  .entry-form .row{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px; }
   .field{ display:flex; flex-direction:column; gap:5px; }
-  .field label{
-    font-size:11px;
-    color:var(--muted);
-    letter-spacing:0.2px;
-  }
+  .field label{ font-size:11px; color:var(--muted); letter-spacing:0.2px; }
   .type-toggle{ display:flex; border:1px solid var(--line-strong); border-radius:var(--radius); overflow:hidden; }
-  .type-toggle button{
-    border:none; border-radius:0; background:var(--paper-raised); color:var(--ink);
-    padding:8px 16px; font-weight:600;
-  }
+  .type-toggle button{ border:none; border-radius:0; background:var(--paper-raised); color:var(--ink); padding:8px 16px; font-weight:600; }
   .type-toggle button.active.credit{ background:var(--credit); color:#fff; }
   .type-toggle button.active.debit{ background:var(--debit); color:#fff; }
-
-  .material-row{ display:flex; gap:8px; align-items:flex-end; }
+  .link-box{
+    background:#F1EFE6; border:1px dashed var(--line-strong); border-radius:var(--radius);
+    padding:12px 14px; margin-top:6px;
+  }
+  .link-box .link-title{ font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:8px; letter-spacing:0.2px; }
 
   /* ---------- Ledger table ---------- */
-  table.ledger{
-    width:100%;
-    border-collapse:collapse;
-    font-size:13.5px;
-  }
-  table.ledger thead th{
-    text-align:left;
-    font-size:10.5px;
-    letter-spacing:0.3px;
-    color:var(--muted);
-    border-bottom:1px solid var(--ink);
-    padding:6px 8px;
-  }
-  table.ledger tbody td{
-    padding:8px 8px;
-    border-bottom:1px solid var(--line);
-    vertical-align:top;
-  }
+  table.ledger{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.ledger thead th{ text-align:left; font-size:10.5px; letter-spacing:0.3px; color:var(--muted); border-bottom:1px solid var(--ink); padding:6px 8px; }
+  table.ledger tbody td{ padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   table.ledger tbody tr:hover{ background:#EFEDE4; }
   td.num, th.num{ text-align:right; font-family:'IBM Plex Mono', monospace; }
   td.date, th.date{ font-family:'IBM Plex Mono', monospace; white-space:nowrap; }
-  .pill{
-    display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600;
-  }
+  .pill{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
   .pill.credit{ background:#DEEEE9; color:var(--credit); }
   .pill.debit{ background:#F1DFDA; color:var(--debit); }
-  .del-btn{
-    background:none; border:none; color:var(--muted); font-size:15px; cursor:pointer; padding:0 4px;
-  }
+  .link-tag{ display:inline-block; font-size:10.5px; color:var(--link); margin-left:6px; }
+  .del-btn{ background:none; border:none; color:var(--muted); font-size:15px; cursor:pointer; padding:0 4px; }
   .del-btn:hover{ color:var(--debit); }
 
-  .empty-state{
-    border:1px dashed var(--line-strong);
-    border-radius:var(--radius);
-    padding:36px 20px;
-    text-align:center;
-    color:var(--muted);
-  }
+  .empty-state{ border:1px dashed var(--line-strong); border-radius:var(--radius); padding:36px 20px; text-align:center; color:var(--muted); }
 
-  /* ---------- Summary view ---------- */
-  .summary-actions{ display:flex; gap:10px; margin-bottom:18px; }
-  h1.page-title{
-    font-family:'Zilla Slab', serif;
-    font-size:26px;
-    font-weight:700;
-    margin:0 0 18px;
-    border-bottom:2px solid var(--ink);
-    padding-bottom:10px;
-  }
+  .summary-actions{ display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
   tr.grand-total td{ font-weight:700; border-top:2px solid var(--ink); border-bottom:none; }
+  h2.section-title{ font-family:'Zilla Slab', serif; font-size:18px; font-weight:700; margin:28px 0 10px; }
+  h2.section-title:first-of-type{ margin-top:6px; }
 
-  .materials-manage{ margin-top:8px; font-size:12.5px; color: var(--muted); }
-  .materials-manage .chip{
-    display:inline-flex; align-items:center; gap:4px;
-    background:#EAE7DC; padding:2px 8px; border-radius:20px; margin:2px 4px 2px 0; font-size:12px;
-  }
-  .materials-manage .chip button{
-    background:none;border:none;color:var(--muted);padding:0;font-size:13px;cursor:pointer;
-  }
-
-  .profile-form{
-    background:var(--paper-raised);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    padding:20px;
-    max-width:460px;
-  }
+  .profile-form{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:20px; max-width:460px; }
   .profile-form .field{ margin-bottom:14px; }
   .profile-form label{ font-size:11px; color:var(--muted); letter-spacing:0.2px; }
   .profile-form input{ width:100%; margin-top:4px; }
-  .filter-row{ display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end; }
 
-  /* ---------- Print letterhead (hidden on screen) ---------- */
+  /* ---------- Print letterhead ---------- */
   .print-only{ display:none; }
   #printArea{ display:none; }
-
   @media print{
     header.topbar, nav.sidebar, .no-print{ display:none !important; }
     body{ background:#fff; }
@@ -360,23 +212,17 @@
     #mainContent{ display:none; }
     #printArea{ display:block; }
     .print-only{ display:block; }
-    .print-letterhead{
-      border-bottom:2px solid #16243A;
-      padding-bottom:10px;
-      margin-bottom:18px;
-    }
+    .print-letterhead{ border-bottom:2px solid #16243A; padding-bottom:10px; margin-bottom:18px; }
     .print-letterhead .biz{ font-family:'Zilla Slab', serif; font-size:22px; font-weight:700; }
     .print-letterhead .meta{ font-size:12px; color:#555; margin-top:2px; }
     .print-letterhead .meta-date{ float:right; font-size:12px; color:#555; }
     table.ledger{ font-size:12px; }
   }
 
-  @media (max-width: 720px){
+  @media (max-width: 780px){
     .shell{ flex-direction:column; }
-    nav.sidebar{ width:100%; flex-direction:row; overflow-x:auto; padding:10px; }
-    .nav-section-label{ display:none; }
-    .add-client-row{ display:none; }
-    main.content{ padding:20px; }
+    nav.sidebar{ width:100%; max-height:260px; }
+    main.content{ padding:18px; }
     .stats{ gap:14px; }
   }
 </style>
@@ -385,7 +231,7 @@
 
 <div id="signInGate">
   <div class="mark">Site Ledger</div>
-  <div class="sub">CLIENT EXPENSE REGISTER</div>
+  <div class="sub">SITE ACCOUNTS REGISTER</div>
   <button class="google-btn" onclick="signIn()">
     <svg width="18" height="18" viewBox="0 0 48 48">
       <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.4 6.2 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
@@ -407,7 +253,7 @@
 <header class="topbar">
   <div class="brand">
     <span class="mark">Site Ledger</span>
-    <span class="sub">CLIENT EXPENSE REGISTER</span>
+    <span class="sub">SITE ACCOUNTS REGISTER</span>
     <span class="sub" id="syncStatus" style="margin-left:6px;">○ connecting…</span>
   </div>
   <div style="display:flex; align-items:center;">
@@ -421,21 +267,8 @@
 </header>
 
 <div class="shell">
-  <nav class="sidebar">
-    <div class="nav-item" id="navSummary">📊 &nbsp;Engineer Summary</div>
-    <div class="nav-item" id="navAll">📋 &nbsp;All Entries</div>
-    <div class="nav-item" id="navProfile">⚙ &nbsp;My Profile</div>
-    <div class="nav-section-label">CLIENTS</div>
-    <div id="clientNavList"></div>
-    <div class="add-client-row">
-      <input type="text" id="newClientInput" placeholder="New client name">
-      <button style="width:100%" onclick="addClient()">+ Add client</button>
-    </div>
-  </nav>
-
-  <main class="content" id="mainContent">
-    <!-- rendered by JS -->
-  </main>
+  <nav class="sidebar" id="sidebar"><!-- rendered by JS --></nav>
+  <main class="content" id="mainContent"><!-- rendered by JS --></main>
 </div>
 
 <div id="printArea"></div>
@@ -448,12 +281,12 @@
 // "Your apps" → Web app). See Firebase_Setup_Guide.txt for full steps.
 // ============================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyC4r39KMWvgwFf8ZT9geml2H-uwga8OaK0",
-  authDomain: "site-ledger-68c01.firebaseapp.com",
-  projectId: "site-ledger-68c01",
-  storageBucket: "site-ledger-68c01.firebasestorage.app",
-  messagingSenderId: "533608071930",
-  appId: "1:533608071930:web:c0a85b6d82609968f3bf43"
+  apiKey: "AIzaSyCTEKfL7VZGtmRcYmjyMIvB4sNRJyXM7mY",
+  authDomain: "site-ledger-9269a.firebaseapp.com",
+  projectId: "site-ledger-9269a",
+  storageBucket: "site-ledger-9269a.firebasestorage.app",
+  messagingSenderId: "608541823106",
+  appId: "1:608541823106:web:2156301d9fc9a76f31a49b"
 };
 const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
 
@@ -469,13 +302,11 @@ if(FIREBASE_CONFIGURED){
 }
 
 function signIn(){
-  if(!FIREBASE_CONFIGURED){ return; }
+  if(!FIREBASE_CONFIGURED) return;
   const provider = new firebase.auth.GoogleAuthProvider();
   auth.signInWithPopup(provider).catch(e => alert('Sign-in failed: ' + e.message));
 }
-function signOutUser(){
-  if(auth) auth.signOut();
-}
+function signOutUser(){ if(auth) auth.signOut(); }
 function renderUserBadge(){
   const el = document.getElementById('userBadge');
   if(!el || !currentUser) return;
@@ -486,21 +317,46 @@ function renderUserBadge(){
   `;
 }
 
-const STORAGE_KEY = 'site-ledger-state-v1';
-function defaultMaterials(){ return ['Cement','Bricks','Steel/TMT Bars','Sand','Aggregate','Labour','Transport','Other']; }
-let state = {
-  clients: [],
-  materials: defaultMaterials(),
-  transactions: [],
-  engineer: { name:'', business:'', phone:'', address:'' }
-};
-let activeView = 'summary'; // 'summary' or a client id
-let pendingType = 'Credit';
-let loaded = false;
+/* ============================================================
+   DATA MODEL
+   sections: 'labour' | 'material' | 'supplier' | 'client' | 'engineer'
+   state.accounts.{labour|material|supplier|client} = [{id, name}]
+   engineer has no named accounts — it's a single ledger.
+   state.transactions[] = {
+     id, date, section, accountId (null for engineer),
+     subLedger (only for client: 'client' | 'project'),
+     type ('Credit'|'Debit'), amount, notes,
+     linkGroupId (shared id across a primary entry + its auto twins),
+     auto (true if this record was auto-created as a linked twin)
+   }
+   ============================================================ */
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function fmt(n){ return '₹' + (Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+function seedAccounts(names){ return names.map(n => ({ id: uid('a'), name: n })); }
+
+function defaultAccounts(){
+  return {
+    labour: seedAccounts(['Mason Labour','Centring','Concrete','Electric','Carpenter','Painting','Plumber','Plastering','Tiles']),
+    material: seedAccounts(['Cement','Steel','M.Sand','P.Sand','3/4 Jelly','1 1/2 Jelly','Electric','Wood','Painting','Plumbing','Tiles','Gravel']),
+    supplier: seedAccounts(['Lucky Steel','Lucky Cement','Lucky Tiles','Royal Electric','Ummayal','Door King','Saranam Iyyappa']),
+    client: seedAccounts(['Ramesh','Sampath','Sivaraman','Vasanthi','Murali','Eswari','Vijaya'])
+  };
+}
+function defaultProfile(){ return { name:'', business:'', phone:'', address:'' }; }
+
+let state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
+let loaded = false;
+let activeView = 'entry'; // 'entry' | 'summary' | 'all' | 'profile' | 'section:accountId:subLedger'
+let expandedSections = { labour:false, material:false, supplier:false, client:true };
+let pendingType = 'Debit';
+let pendingSection = 'client';
+let presetAccount = null; // {section, accountId, subLedger} set when jumping from an account page to the entry form
+
+const SECTION_LABELS = { labour:'Labour', material:'Material', supplier:'Supplier', client:'Client', engineer:'Engineer' };
+
+/* ---------------- Persistence (Firebase) ---------------- */
 
 async function loadState(){
   loaded = false;
@@ -510,20 +366,19 @@ async function loadState(){
     if(snap.exists){
       const data = snap.data();
       state = {
-        clients: data.clients || [],
-        materials: data.materials || defaultMaterials(),
+        accounts: data.accounts || defaultAccounts(),
         transactions: data.transactions || [],
-        engineer: data.engineer || { name:'', business:'', phone:'', address:'' }
+        profile: data.profile || defaultProfile()
       };
     } else {
-      state = { clients: [], materials: defaultMaterials(), transactions: [], engineer: { name:'', business:'', phone:'', address:'' } };
+      state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
       await docRef.set(state);
     }
     setSyncStatus('synced');
   }catch(e){
     console.error('Load failed', e);
     setSyncStatus('error');
-    state = { clients: [], materials: defaultMaterials(), transactions: [], engineer: { name:'', business:'', phone:'', address:'' } };
+    state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
   }
   loaded = true;
   render();
@@ -548,13 +403,60 @@ function setSyncStatus(mode){
   else { el.textContent = '○ connecting…'; el.style.color = '#B9B4A2'; }
 }
 
-function clientTx(clientId){
-  return state.transactions
-    .filter(t => t.clientId === clientId)
-    .sort((a,b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : (a.seq - b.seq)));
+/* ---------------- Account helpers ---------------- */
+
+function accountsFor(section){
+  if(section === 'engineer') return [];
+  return state.accounts[section] || [];
 }
-function clientTotals(clientId){
-  const tx = clientTx(clientId);
+function accountName(section, accountId){
+  if(section === 'engineer') return 'Engineer';
+  const list = state.accounts[section] || [];
+  const a = list.find(x => x.id === accountId);
+  return a ? a.name : '(deleted)';
+}
+function subLedgerLabel(sub){ return sub === 'project' ? 'Engineer Selavu' : 'Client Selavu'; }
+function accountLabel(section, accountId, subLedger){
+  if(section === 'engineer') return 'Engineer';
+  if(section === 'client') return accountName(section, accountId) + ' — ' + subLedgerLabel(subLedger);
+  return accountName(section, accountId) + ' (' + SECTION_LABELS[section] + ')';
+}
+
+function addAccount(section, name){
+  name = name.trim();
+  if(!name) return;
+  const list = state.accounts[section];
+  if(list.some(a => a.name.toLowerCase() === name.toLowerCase())){
+    alert("'" + name + "' already exists in " + SECTION_LABELS[section] + ".");
+    return;
+  }
+  const acc = { id: uid('a'), name };
+  list.push(acc);
+  saveState();
+  activeView = section + ':' + acc.id + (section === 'client' ? ':client' : ':');
+  render();
+}
+
+function deleteAccount(section, accountId){
+  const name = accountName(section, accountId);
+  const txCount = state.transactions.filter(t => t.section === section && t.accountId === accountId).length;
+  if(!confirm(`Delete '${name}' and its ${txCount} entrie(s)? This can't be undone.`)) return;
+  state.accounts[section] = state.accounts[section].filter(a => a.id !== accountId);
+  state.transactions = state.transactions.filter(t => !(t.section === section && t.accountId === accountId));
+  activeView = 'summary';
+  saveState();
+  render();
+}
+
+/* ---------------- Transactions ---------------- */
+
+function txFor(section, accountId, subLedger){
+  return state.transactions
+    .filter(t => t.section === section && (section === 'engineer' || t.accountId === accountId) && (section !== 'client' || t.subLedger === subLedger))
+    .sort((a,b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+}
+function totalsFor(section, accountId, subLedger){
+  const tx = txFor(section, accountId, subLedger);
   let credit = 0, debit = 0;
   tx.forEach(t => { if(t.type === 'Credit') credit += t.amount; else debit += t.amount; });
   return { credit, debit, balance: credit - debit };
@@ -565,330 +467,478 @@ function overallTotals(){
   return { credit, debit, balance: credit - debit };
 }
 
-function addClient(){
-  const input = document.getElementById('newClientInput');
-  const name = input.value.trim();
-  if(!name) return;
-  if(state.clients.some(c => c.name.toLowerCase() === name.toLowerCase())){
-    alert("A client named '" + name + "' already exists.");
-    return;
-  }
-  const client = { id: uid('c'), name };
-  state.clients.push(client);
-  input.value = '';
-  activeView = client.id;
-  saveState();
-  render();
-}
-
-function deleteClient(id){
-  const client = state.clients.find(c => c.id === id);
-  if(!client) return;
-  if(!confirm("Delete '" + client.name + "' and all their transactions? This can't be undone.")) return;
-  state.clients = state.clients.filter(c => c.id !== id);
-  state.transactions = state.transactions.filter(t => t.clientId !== id);
-  activeView = 'summary';
-  saveState();
-  render();
-}
-
-function addMaterial(name){
-  name = name.trim();
-  if(!name) return;
-  if(!state.materials.some(m => m.toLowerCase() === name.toLowerCase())){
-    state.materials.push(name);
-    saveState();
-  }
-}
-function removeMaterial(name){
-  state.materials = state.materials.filter(m => m !== name);
-  saveState();
-  render();
-}
-
-function addTransaction(clientId, form){
-  const date = form.date.value || todayStr();
+function saveDailyEntry(){
+  const date = document.getElementById('de_date').value || todayStr();
+  const section = pendingSection;
   const type = pendingType;
-  const amount = parseFloat(form.amount.value);
-  const material = type === 'Debit' ? form.material.value : '';
-  const notes = form.notes.value.trim();
+  const amount = parseFloat(document.getElementById('de_amount').value);
+  const notes = document.getElementById('de_notes').value.trim();
 
   if(!amount || amount <= 0){ alert('Enter a valid amount.'); return; }
-  if(type === 'Debit' && !material){ alert('Choose a material or reason for this debit entry.'); return; }
 
-  const seq = state.transactions.length;
-  state.transactions.push({ id: uid('t'), clientId, date, type, amount, material, notes, seq });
-  form.amount.value = '';
-  form.notes.value = '';
+  let accountId = null, subLedger = null;
+  if(section !== 'engineer'){
+    const accEl = document.getElementById('de_account');
+    accountId = accEl ? accEl.value : '';
+    if(!accountId){ alert('Choose an account.'); return; }
+  }
+  if(section === 'client'){
+    const ledgerEl = document.getElementById('de_ledger');
+    subLedger = ledgerEl ? ledgerEl.value : 'client';
+  }
+
+  const linkGroupId = uid('lg');
+  const batch = [{ id: uid('t'), date, section, accountId, subLedger, type, amount, notes, linkGroupId, auto:false }];
+
+  if(section === 'labour' || section === 'material' || section === 'supplier'){
+    const linkClientEl = document.getElementById('de_link_client');
+    const linkClientId = linkClientEl ? linkClientEl.value : '';
+    if(linkClientId){
+      batch.push({
+        id: uid('t'), date, section:'client', accountId: linkClientId, subLedger:'project',
+        type, amount, notes: notes || ('From ' + SECTION_LABELS[section] + ': ' + accountName(section, accountId)),
+        linkGroupId, auto:true
+      });
+    }
+  }
+  if(section === 'material'){
+    const linkSupplierEl = document.getElementById('de_link_supplier');
+    const linkSupplierId = linkSupplierEl ? linkSupplierEl.value : '';
+    if(linkSupplierId){
+      batch.push({
+        id: uid('t'), date, section:'supplier', accountId: linkSupplierId, subLedger:null,
+        type, amount, notes: notes || ('Material: ' + accountName('material', accountId)),
+        linkGroupId, auto:true
+      });
+    }
+  }
+
+  state.transactions.push(...batch);
   saveState();
+  presetAccount = null;
+  const linkedCount = batch.length - 1;
+  alert('Entry saved' + (linkedCount > 0 ? ' and linked to ' + linkedCount + ' other page' + (linkedCount>1?'s':'') + '.' : '.'));
   render();
 }
 
 function deleteTransaction(id){
-  state.transactions = state.transactions.filter(t => t.id !== id);
+  const tx = state.transactions.find(t => t.id === id);
+  if(!tx) return;
+  const siblings = state.transactions.filter(t => t.linkGroupId === tx.linkGroupId && t.id !== tx.id);
+  if(siblings.length > 0){
+    const names = siblings.map(s => accountLabel(s.section, s.accountId, s.subLedger)).join(', ');
+    const deleteAll = confirm(`This entry is also linked to: ${names}.\n\nOK = delete it everywhere it's linked\nCancel = delete only this one page's entry`);
+    if(deleteAll){
+      state.transactions = state.transactions.filter(t => t.linkGroupId !== tx.linkGroupId);
+    } else {
+      state.transactions = state.transactions.filter(t => t.id !== tx.id);
+    }
+  } else {
+    state.transactions = state.transactions.filter(t => t.id !== tx.id);
+  }
   saveState();
   render();
 }
 
-/* ---------------- Rendering ---------------- */
+/* ---------------- View routing ---------------- */
+
+function parseView(view){
+  if(view === 'entry' || view === 'summary' || view === 'all' || view === 'profile'){
+    return { kind: view };
+  }
+  const parts = view.split(':');
+  return { kind:'account', section: parts[0], accountId: parts[1] || null, subLedger: parts[2] || null };
+}
+
+function goTo(view){ activeView = view; render(); }
 
 function render(){
   if(!loaded) return;
   const overall = overallTotals();
   document.getElementById('statCredit').textContent = fmt(overall.credit);
   document.getElementById('statDebit').textContent = fmt(overall.debit);
-  const balEl = document.getElementById('statBalance');
-  balEl.textContent = fmt(overall.balance);
+  document.getElementById('statBalance').textContent = fmt(overall.balance);
 
   renderSidebar();
-  if(activeView === 'summary'){ renderSummary(); }
-  else if(activeView === 'all'){ renderAllEntries(); }
-  else if(activeView === 'profile'){ renderProfile(); }
-  else { renderClient(activeView); }
+  const v = parseView(activeView);
+  if(v.kind === 'entry') renderDailyEntry();
+  else if(v.kind === 'summary') renderSummary();
+  else if(v.kind === 'all') renderAllEntries();
+  else if(v.kind === 'profile') renderProfile();
+  else renderAccountPage(v.section, v.accountId, v.subLedger);
+}
+
+/* ---------------- Sidebar ---------------- */
+
+function toggleSection(section){
+  expandedSections[section] = !expandedSections[section];
+  renderSidebar();
 }
 
 function renderSidebar(){
-  const navSummary = document.getElementById('navSummary');
-  navSummary.className = 'nav-item' + (activeView === 'summary' ? ' active' : '');
-  navSummary.onclick = () => { activeView = 'summary'; render(); };
+  const v = parseView(activeView);
+  const sb = document.getElementById('sidebar');
 
-  const navAll = document.getElementById('navAll');
-  navAll.className = 'nav-item' + (activeView === 'all' ? ' active' : '');
-  navAll.onclick = () => { activeView = 'all'; render(); };
+  let html = `<div class="nav-top">
+    <div class="nav-item ${activeView==='entry'?'active':''}" onclick="goTo('entry')">🖊 &nbsp;Daily Entry</div>
+    <div class="nav-item ${activeView==='summary'?'active':''}" onclick="goTo('summary')">📊 &nbsp;Summary</div>
+    <div class="nav-item ${activeView==='all'?'active':''}" onclick="goTo('all')">📋 &nbsp;All Entries</div>
+    <div class="nav-item ${activeView==='profile'?'active':''}" onclick="goTo('profile')">⚙ &nbsp;Profile</div>
+  </div>`;
 
-  const navProfile = document.getElementById('navProfile');
-  navProfile.className = 'nav-item' + (activeView === 'profile' ? ' active' : '');
-  navProfile.onclick = () => { activeView = 'profile'; render(); };
-
-  const list = document.getElementById('clientNavList');
-  list.innerHTML = '';
-  state.clients.forEach(c => {
-    const totals = clientTotals(c.id);
-    const div = document.createElement('div');
-    div.className = 'nav-item' + (activeView === c.id ? ' active' : '');
-    div.innerHTML = `<span>${escapeHtml(c.name)}</span><span class="bal ${totals.balance >= 0 ? 'pos' : 'neg'}">${fmt(totals.balance)}</span>`;
-    div.onclick = () => { activeView = c.id; render(); };
-    list.appendChild(div);
-  });
-}
-
-function renderSummary(){
-  const overall = overallTotals();
-  let rows = '';
-  state.clients.forEach(c => {
-    const t = clientTotals(c.id);
-    rows += `<tr>
-      <td>${escapeHtml(c.name)}</td>
-      <td class="num" style="color:var(--credit)">${fmt(t.credit)}</td>
-      <td class="num" style="color:var(--debit)">${fmt(t.debit)}</td>
-      <td class="num">${fmt(t.balance)}</td>
-    </tr>`;
-  });
-
-  const empty = state.clients.length === 0
-    ? `<div class="empty-state">No clients yet. Add one from the sidebar to start logging credits and debits.</div>`
-    : '';
-
-  document.getElementById('mainContent').innerHTML = `
-    <h1 class="page-title">Engineer Summary</h1>
-    <div class="summary-actions">
-      <button class="ghost" onclick="exportExcel()">Export workbook (.xlsx)</button>
-      <button class="ghost" onclick="exportCSV()">Export all transactions (.csv)</button>
-      <button class="ghost" onclick="printReport('summary')">🖨 Print business report</button>
-    </div>
-    ${empty}
-    ${state.clients.length ? `
-    <table class="ledger">
-      <thead><tr><th>Client</th><th class="num">Total credit</th><th class="num">Total debit</th><th class="num">Net balance</th></tr></thead>
-      <tbody>
-        ${rows}
-        <tr class="grand-total">
-          <td>Grand total</td>
-          <td class="num" style="color:var(--credit)">${fmt(overall.credit)}</td>
-          <td class="num" style="color:var(--debit)">${fmt(overall.debit)}</td>
-          <td class="num">${fmt(overall.balance)}</td>
-        </tr>
-      </tbody>
-    </table>` : ''}
-
-    <div class="materials-manage">
-      <div style="margin-bottom:6px;"><strong>Materials / reasons list</strong> — used in the Debit dropdown for every client.</div>
-      ${state.materials.map(m => `<span class="chip">${escapeHtml(m)} <button onclick="removeMaterial('${escapeJs(m)}')" title="Remove">&times;</button></span>`).join('')}
-      <div style="margin-top:8px; display:flex; gap:8px;">
-        <input type="text" id="newMaterialInput" placeholder="New material or reason" style="max-width:220px;">
-        <button class="small" onclick="handleAddMaterial()">+ Add</button>
+  ['labour','material','supplier','client'].forEach(section => {
+    const open = expandedSections[section];
+    const accounts = accountsFor(section);
+    html += `<div class="section-group">
+      <div class="section-head ${open?'open':''}" onclick="toggleSection('${section}')">
+        <span><span class="caret">▶</span> ${SECTION_LABELS[section].toUpperCase()}</span>
+        <span style="font-weight:400; color:var(--muted);">${accounts.length}</span>
       </div>
-    </div>
-  `;
-}
-
-function handleAddMaterial(){
-  const input = document.getElementById('newMaterialInput');
-  addMaterial(input.value);
-  input.value = '';
-  render();
-}
-
-function renderClient(clientId){
-  const client = state.clients.find(c => c.id === clientId);
-  if(!client){ activeView = 'summary'; render(); return; }
-  const totals = clientTotals(clientId);
-  const tx = clientTx(clientId);
-
-  let runBal = 0;
-  let rows = '';
-  if(tx.length === 0){
-    rows = `<tr><td colspan="6"><div class="empty-state">No entries yet for ${escapeHtml(client.name)}. Log the first credit or debit above.</div></td></tr>`;
-  } else {
-    tx.forEach(t => {
-      runBal += (t.type === 'Credit' ? t.amount : -t.amount);
-      rows += `<tr>
-        <td class="date">${t.date}</td>
-        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span></td>
-        <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
-        <td>${escapeHtml(t.material || '—')}</td>
-        <td>${escapeHtml(t.notes || '')}</td>
-        <td class="num">${fmt(runBal)}</td>
-        <td><button class="del-btn" title="Delete entry" onclick="deleteTransaction('${t.id}')">&times;</button></td>
-      </tr>`;
+      <div class="section-body ${open?'open':''}">`;
+    accounts.forEach(a => {
+      const isActive = v.kind === 'account' && v.section === section && v.accountId === a.id;
+      let balDisplay = '';
+      if(section === 'client'){
+        const cBal = totalsFor('client', a.id, 'client').balance;
+        const pBal = totalsFor('client', a.id, 'project').balance;
+        const net = cBal + pBal;
+        balDisplay = `<span class="bal ${net>=0?'pos':'neg'}">${fmt(net)}</span>`;
+      } else {
+        const t = totalsFor(section, a.id, null);
+        balDisplay = `<span class="bal ${t.balance>=0?'pos':'neg'}">${fmt(t.balance)}</span>`;
+      }
+      const targetView = section === 'client' ? `client:${a.id}:client` : `${section}:${a.id}:`;
+      html += `<div class="nav-item ${isActive?'active':''}" onclick="goTo('${targetView}')">
+        <span>${escapeHtml(a.name)}</span>${balDisplay}
+      </div>`;
     });
+    html += `</div>
+      <div class="add-account-row" style="display:${open?'flex':'none'};">
+        <input type="text" id="add_${section}" placeholder="New ${SECTION_LABELS[section].toLowerCase()}…">
+        <button class="small" onclick="handleAddAccount('${section}')">+</button>
+      </div>
+    </div>`;
+  });
+
+  const engBal = totalsFor('engineer', null, null).balance;
+  html += `<div class="section-group">
+    <div class="nav-item ${v.kind==='account' && v.section==='engineer' ? 'active':''}" onclick="goTo('engineer::')">
+      <span>⚒ &nbsp;ENGINEER</span><span class="bal ${engBal>=0?'pos':'neg'}">${fmt(engBal)}</span>
+    </div>
+  </div>`;
+
+  sb.innerHTML = html;
+
+  ['labour','material','supplier','client'].forEach(section => {
+    const input = document.getElementById('add_' + section);
+    if(input) input.addEventListener('keydown', e => { if(e.key === 'Enter') handleAddAccount(section); });
+  });
+}
+
+function handleAddAccount(section){
+  const input = document.getElementById('add_' + section);
+  addAccount(section, input.value);
+}
+
+/* ---------------- Daily Entry page ---------------- */
+
+function setEntrySection(section){
+  pendingSection = section;
+  renderDailyEntry();
+}
+function setEntryType(type){
+  pendingType = type;
+  renderDailyEntry();
+}
+
+function renderDailyEntry(){
+  const dateVal = document.getElementById('de_date') ? document.getElementById('de_date').value : todayStr();
+  const amountVal = document.getElementById('de_amount') ? document.getElementById('de_amount').value : '';
+  const notesVal = document.getElementById('de_notes') ? document.getElementById('de_notes').value : '';
+
+  let section = pendingSection;
+  let presetAccId = '';
+  let presetSub = 'client';
+  if(presetAccount){
+    section = presetAccount.section;
+    pendingSection = section;
+    presetAccId = presetAccount.accountId || '';
+    presetSub = presetAccount.subLedger || 'client';
   }
 
-  const materialOptions = state.materials.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  const accounts = accountsFor(section);
+  const accountOptions = accounts.map(a => `<option value="${a.id}" ${a.id===presetAccId?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+  const clientOptions = accountsFor('client').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+  const supplierOptions = accountsFor('supplier').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
 
   document.getElementById('mainContent').innerHTML = `
-    <div class="client-header">
-      <h1>${escapeHtml(client.name)}</h1>
-      <div class="client-balance ${totals.balance >= 0 ? 'pos' : 'neg'}">
-        <span class="tag">${totals.balance >= 0 ? 'Client is in credit' : 'Client owes balance'}</span>
-        ${fmt(totals.balance)}
-      </div>
-    </div>
-
+    <h1 class="page-title">Daily Entry</h1>
     <div class="entry-form">
+      <div class="row">
+        <div class="field">
+          <label>Section</label>
+          <select onchange="setEntrySection(this.value)">
+            <option value="labour" ${section==='labour'?'selected':''}>Labour</option>
+            <option value="material" ${section==='material'?'selected':''}>Material</option>
+            <option value="supplier" ${section==='supplier'?'selected':''}>Supplier</option>
+            <option value="client" ${section==='client'?'selected':''}>Client</option>
+            <option value="engineer" ${section==='engineer'?'selected':''}>Engineer</option>
+          </select>
+        </div>
+        ${section !== 'engineer' ? `
+        <div class="field">
+          <label>Account</label>
+          <select id="de_account">${accountOptions || '<option value="">No accounts yet — add one from the sidebar</option>'}</select>
+        </div>` : ''}
+        ${section === 'client' ? `
+        <div class="field">
+          <label>Ledger</label>
+          <select id="de_ledger">
+            <option value="client" ${presetSub==='client'?'selected':''}>Client Selavu</option>
+            <option value="project" ${presetSub==='project'?'selected':''}>Engineer Selavu</option>
+          </select>
+        </div>` : ''}
+      </div>
+
       <div class="row">
         <div class="field">
           <label>Type</label>
           <div class="type-toggle">
-            <button type="button" class="${pendingType==='Credit'?'active credit':''}" onclick="setType('Credit')">Credit</button>
-            <button type="button" class="${pendingType==='Debit'?'active debit':''}" onclick="setType('Debit')">Debit</button>
+            <button type="button" class="${pendingType==='Credit'?'active credit':''}" onclick="setEntryType('Credit')">Credit</button>
+            <button type="button" class="${pendingType==='Debit'?'active debit':''}" onclick="setEntryType('Debit')">Debit</button>
           </div>
         </div>
-        <div class="field">
-          <label>Date</label>
-          <input type="date" id="f_date" value="${todayStr()}">
-        </div>
-        <div class="field">
-          <label>Amount</label>
-          <input type="number" id="f_amount" min="0" step="0.01" placeholder="0.00">
-        </div>
-        ${pendingType === 'Debit' ? `
-        <div class="field">
-          <label>Material / reason</label>
-          <select id="f_material">
-            <option value="">Select…</option>
-            ${materialOptions}
-          </select>
-        </div>` : ''}
-        <div class="field" style="flex:1; min-width:180px;">
-          <label>Notes</label>
-          <input type="text" id="f_notes" placeholder="Optional note">
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button onclick="handleAddEntry('${clientId}')">Save entry</button>
-        </div>
+        <div class="field"><label>Date</label><input type="date" id="de_date" value="${dateVal || todayStr()}"></div>
+        <div class="field"><label>Amount</label><input type="number" id="de_amount" min="0" step="0.01" placeholder="0.00" value="${escapeHtml(amountVal)}"></div>
+        <div class="field" style="flex:1; min-width:200px;"><label>Notes</label><input type="text" id="de_notes" placeholder="Optional note" value="${escapeHtml(notesVal)}"></div>
       </div>
-    </div>
 
-    <table class="ledger">
-      <thead>
-        <tr>
-          <th class="date">Date</th><th>Type</th><th class="num">Amount</th>
-          <th>Material / reason</th><th>Notes</th><th class="num">Running balance</th><th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
+      ${(section === 'labour' || section === 'material' || section === 'supplier') ? `
+      <div class="link-box">
+        <div class="link-title">OPTIONAL — LINK THIS TO ANOTHER LEDGER</div>
+        <div class="row" style="margin-bottom:0;">
+          <div class="field">
+            <label>Also add to a client's project?</label>
+            <select id="de_link_client">
+              <option value="">— None —</option>
+              ${clientOptions}
+            </select>
+          </div>
+          ${section === 'material' ? `
+          <div class="field">
+            <label>Also add to a supplier's ledger?</label>
+            <select id="de_link_supplier">
+              <option value="">— None —</option>
+              ${supplierOptions}
+            </select>
+          </div>` : ''}
+        </div>
+      </div>` : ''}
 
-    <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button class="ghost" onclick="exportClientCSV('${clientId}')">Export ${escapeJs(client.name)}'s ledger (.csv)</button>
-      <button class="ghost" onclick="printReport('client', '${clientId}')">🖨 Print statement</button>
-      <button class="ghost" onclick="deleteClient('${clientId}')" style="color:var(--debit); border-color:var(--debit);">Delete client</button>
+      <div class="row" style="margin-top:16px; margin-bottom:0;">
+        <button onclick="saveDailyEntry()">Save entry</button>
+      </div>
     </div>
   `;
 }
 
-function setType(t){ pendingType = t; renderClient(activeView); }
+/* ---------------- Account page (Labour / Material / Supplier / Engineer / Client) ---------------- */
 
-function handleAddEntry(clientId){
-  const form = {
-    date: document.getElementById('f_date'),
-    amount: document.getElementById('f_amount'),
-    material: pendingType === 'Debit' ? document.getElementById('f_material') : { value:'' },
-    notes: document.getElementById('f_notes')
-  };
-  addTransaction(clientId, form);
-}
+function renderAccountPage(section, accountId, subLedger){
+  if(section === 'client' && !subLedger) subLedger = 'client';
+  const totals = totalsFor(section, accountId, subLedger);
+  const tx = txFor(section, accountId, subLedger);
+  const title = section === 'engineer' ? 'Engineer' : accountName(section, accountId);
 
-/* ---------------- All Entries (master ledger) ---------------- */
-
-function renderAllEntries(){
-  const all = state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : (a.seq - b.seq));
-  const clientMap = {};
-  state.clients.forEach(c => clientMap[c.id] = c.name);
-
-  let rows = '';
-  if(all.length === 0){
-    rows = `<tr><td colspan="6"><div class="empty-state">No entries logged yet across any client.</div></td></tr>`;
+  let runBal = 0, rows = '';
+  if(tx.length === 0){
+    rows = `<tr><td colspan="6"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
   } else {
-    all.forEach(t => {
+    tx.forEach(t => {
+      runBal += (t.type === 'Credit' ? t.amount : -t.amount);
+      const linkedTag = t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
+        ? `<span class="link-tag" title="Linked with another ledger">🔗</span>` : '';
       rows += `<tr>
         <td class="date">${t.date}</td>
-        <td>${escapeHtml(clientMap[t.clientId] || '—')}</td>
-        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span></td>
+        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
         <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
-        <td>${escapeHtml(t.material || '—')}</td>
         <td>${escapeHtml(t.notes || '')}</td>
+        <td class="num">${fmt(runBal)}</td>
+        <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
+      </tr>`;
+    });
+  }
+
+  const subTabs = section === 'client' ? `
+    <div class="subledger-tabs no-print">
+      <button class="${subLedger==='client'?'active':''}" onclick="goTo('client:${accountId}:client')">Client Selavu</button>
+      <button class="${subLedger==='project'?'active':''}" onclick="goTo('client:${accountId}:project')">Engineer Selavu</button>
+    </div>` : '';
+
+  const printType = section === 'client' ? 'client' : 'account';
+  const printArgs = section === 'client' ? `'${section}','${accountId}','${subLedger}'` : `'${section}','${accountId}',''`;
+
+  document.getElementById('mainContent').innerHTML = `
+    <div class="page-header">
+      <h1>${escapeHtml(title)}${section==='client' ? ' — ' + subLedgerLabel(subLedger) : ''}</h1>
+      <div class="page-balance ${totals.balance>=0?'pos':'neg'}">
+        <span class="tag">${section==='engineer' ? 'Net balance' : (totals.balance>=0 ? 'In credit' : 'Balance due')}</span>
+        ${fmt(totals.balance)}
+      </div>
+    </div>
+    ${subTabs}
+    <div class="summary-actions no-print">
+      <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
+      <button class="ghost" onclick="exportAccountCSV('${section}','${accountId||''}','${subLedger||''}')">Export (.csv)</button>
+      <button class="ghost" onclick="printAccountReport('${section}','${accountId||''}','${subLedger||''}')">🖨 Print</button>
+      ${section !== 'engineer' ? `<button class="ghost" onclick="deleteAccount('${section}','${accountId}')" style="color:var(--debit); border-color:var(--debit);">Delete this ${SECTION_LABELS[section].toLowerCase()}</button>` : ''}
+    </div>
+    <table class="ledger">
+      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Running balance</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function jumpToEntry(section, accountId, subLedger){
+  presetAccount = { section, accountId: accountId || null, subLedger: subLedger || null };
+  activeView = 'entry';
+  render();
+}
+
+/* ---------------- Summary ---------------- */
+
+function renderSummary(){
+  const overall = overallTotals();
+
+  function sectionTable(section){
+    const accounts = accountsFor(section);
+    if(accounts.length === 0) return '<div class="empty-state">No accounts yet.</div>';
+    let rows = '';
+    accounts.forEach(a => {
+      const t = totalsFor(section, a.id, null);
+      rows += `<tr>
+        <td><a href="javascript:void(0)" onclick="goTo('${section}:${a.id}:')" style="color:var(--ink); text-decoration:none; border-bottom:1px dotted var(--line-strong);">${escapeHtml(a.name)}</a></td>
+        <td class="num" style="color:var(--credit)">${fmt(t.credit)}</td>
+        <td class="num" style="color:var(--debit)">${fmt(t.debit)}</td>
+        <td class="num">${fmt(t.balance)}</td>
+      </tr>`;
+    });
+    return `<table class="ledger"><thead><tr><th>${SECTION_LABELS[section]}</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  let clientRows = '';
+  accountsFor('client').forEach(c => {
+    const cs = totalsFor('client', c.id, 'client');
+    const es = totalsFor('client', c.id, 'project');
+    const net = cs.balance + es.balance;
+    clientRows += `<tr>
+      <td><a href="javascript:void(0)" onclick="goTo('client:${c.id}:client')" style="color:var(--ink); text-decoration:none; border-bottom:1px dotted var(--line-strong);">${escapeHtml(c.name)}</a></td>
+      <td class="num">${fmt(cs.balance)}</td>
+      <td class="num">${fmt(es.balance)}</td>
+      <td class="num" style="color:${net>=0?'var(--credit)':'var(--debit)'}; font-weight:600;">${fmt(net)}</td>
+    </tr>`;
+  });
+  const clientTable = accountsFor('client').length === 0 ? '<div class="empty-state">No clients yet.</div>' : `
+    <table class="ledger"><thead><tr><th>Client</th><th class="num">Client Selavu</th><th class="num">Engineer Selavu</th><th class="num">Net position</th></tr></thead><tbody>${clientRows}</tbody></table>
+    <p style="font-size:12px; color:var(--muted); margin-top:8px;">Net position = payments received minus project cost so far. Positive means you're ahead on that project; negative means you've spent more than you've been paid so far.</p>
+  `;
+
+  const engTotals = totalsFor('engineer', null, null);
+
+  document.getElementById('mainContent').innerHTML = `
+    <h1 class="page-title">Summary — Everything at a glance</h1>
+    <div class="summary-actions">
+      <button class="ghost" onclick="exportExcel()">Export full workbook (.xlsx)</button>
+      <button class="ghost" onclick="exportCSV()">Export all entries (.csv)</button>
+      <button class="ghost" onclick="printSummaryReport()">🖨 Print business report</button>
+    </div>
+
+    <h2 class="section-title">Clients</h2>
+    ${clientTable}
+
+    <h2 class="section-title">Labour</h2>
+    ${sectionTable('labour')}
+
+    <h2 class="section-title">Material</h2>
+    ${sectionTable('material')}
+
+    <h2 class="section-title">Supplier</h2>
+    ${sectionTable('supplier')}
+
+    <h2 class="section-title">Engineer</h2>
+    <table class="ledger"><thead><tr><th>Engineer</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead>
+    <tbody><tr><td>Engineer's own account</td><td class="num" style="color:var(--credit)">${fmt(engTotals.credit)}</td><td class="num" style="color:var(--debit)">${fmt(engTotals.debit)}</td><td class="num">${fmt(engTotals.balance)}</td></tr></tbody></table>
+
+    <h2 class="section-title">Grand total — every account, every section</h2>
+    <table class="ledger"><tbody><tr class="grand-total">
+      <td>Overall</td>
+      <td class="num" style="color:var(--credit)">${fmt(overall.credit)}</td>
+      <td class="num" style="color:var(--debit)">${fmt(overall.debit)}</td>
+      <td class="num">${fmt(overall.balance)}</td>
+    </tr></tbody></table>
+  `;
+}
+
+/* ---------------- All Entries (master log) ---------------- */
+
+function renderAllEntries(){
+  const all = state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+  let rows = '';
+  if(all.length === 0){
+    rows = `<tr><td colspan="7"><div class="empty-state">No entries logged yet.</div></td></tr>`;
+  } else {
+    all.slice().reverse().forEach(t => {
+      const label = accountLabel(t.section, t.accountId, t.subLedger);
+      const linkedTag = t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
+        ? `<span class="link-tag" title="Linked with another ledger">🔗</span>` : '';
+      rows += `<tr>
+        <td class="date">${t.date}</td>
+        <td>${escapeHtml(SECTION_LABELS[t.section])}</td>
+        <td>${escapeHtml(label)}</td>
+        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
+        <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
+        <td>${escapeHtml(t.notes || '')}</td>
+        <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
       </tr>`;
     });
   }
 
   document.getElementById('mainContent').innerHTML = `
-    <h1 class="page-title">All Entries — every client, one ledger</h1>
+    <h1 class="page-title">All Entries — every section, one log</h1>
     <div class="summary-actions">
-      <button class="ghost" onclick="exportCSV()">Export all transactions (.csv)</button>
+      <button class="ghost" onclick="exportCSV()">Export all (.csv)</button>
       <button class="ghost" onclick="printReport('all')">🖨 Print full ledger</button>
     </div>
     <table class="ledger">
-      <thead><tr><th class="date">Date</th><th>Client</th><th>Type</th><th class="num">Amount</th><th>Material / reason</th><th>Notes</th></tr></thead>
+      <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
 }
 
-/* ---------------- Profile (letterhead info) ---------------- */
+/* ---------------- Profile ---------------- */
 
 function renderProfile(){
-  const e = state.engineer;
+  const p = state.profile;
   document.getElementById('mainContent').innerHTML = `
     <h1 class="page-title">My Profile</h1>
     <p style="color:var(--muted); max-width:460px; margin-top:-8px;">
-      This appears as the letterhead on printed statements and reports handed to clients.
+      This appears as the letterhead on printed statements and reports.
     </p>
     <div class="profile-form">
-      <div class="field"><label>Your name</label><input type="text" id="p_name" value="${escapeHtml(e.name)}"></div>
-      <div class="field"><label>Business / firm name</label><input type="text" id="p_business" value="${escapeHtml(e.business)}"></div>
-      <div class="field"><label>Phone</label><input type="text" id="p_phone" value="${escapeHtml(e.phone)}"></div>
-      <div class="field"><label>Address</label><input type="text" id="p_address" value="${escapeHtml(e.address)}"></div>
+      <div class="field"><label>Your name</label><input type="text" id="p_name" value="${escapeHtml(p.name)}"></div>
+      <div class="field"><label>Business / firm name</label><input type="text" id="p_business" value="${escapeHtml(p.business)}"></div>
+      <div class="field"><label>Phone</label><input type="text" id="p_phone" value="${escapeHtml(p.phone)}"></div>
+      <div class="field"><label>Address</label><input type="text" id="p_address" value="${escapeHtml(p.address)}"></div>
       <button onclick="saveProfile()">Save profile</button>
     </div>
 
     <h1 class="page-title" style="margin-top:34px;">Backup &amp; Export</h1>
     <p style="color:var(--muted); max-width:480px; margin-top:-8px;">
-      Your data now syncs automatically to your Google account — no manual backup
-      needed. These buttons are for sharing a copy with your accountant or keeping
-      an extra archive, not required for safety.
+      Your data syncs automatically to your Google account — no manual backup
+      needed. These buttons are for sharing a copy with your accountant or
+      keeping an extra archive.
     </p>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button onclick="downloadBackup()">⬇ Download backup (.json)</button>
@@ -898,11 +948,20 @@ function renderProfile(){
   `;
 }
 
-function downloadBackup(){
-  const stamp = todayStr();
-  downloadFile(JSON.stringify(state, null, 2), `site_ledger_backup_${stamp}.json`, 'application/json');
+function saveProfile(){
+  state.profile = {
+    name: document.getElementById('p_name').value.trim(),
+    business: document.getElementById('p_business').value.trim(),
+    phone: document.getElementById('p_phone').value.trim(),
+    address: document.getElementById('p_address').value.trim()
+  };
+  saveState();
+  alert('Profile saved.');
 }
 
+function downloadBackup(){
+  downloadFile(JSON.stringify(state, null, 2), `site_ledger_backup_${todayStr()}.json`, 'application/json');
+}
 function restoreBackup(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -910,11 +969,10 @@ function restoreBackup(event){
   reader.onload = () => {
     try{
       const parsed = JSON.parse(reader.result);
-      if(!parsed.clients || !parsed.transactions){ throw new Error('Not a valid backup file'); }
-      if(!confirm('This will replace all current data in this browser with the backup. Continue?')) return;
+      if(!parsed.accounts || !parsed.transactions){ throw new Error('Not a valid backup file'); }
+      if(!confirm('This will replace all current data with the backup. Continue?')) return;
       state = parsed;
-      state.engineer = state.engineer || { name:'', business:'', phone:'', address:'' };
-      state.materials = state.materials || [];
+      state.profile = state.profile || defaultProfile();
       saveState();
       render();
       alert('Backup restored.');
@@ -926,69 +984,81 @@ function restoreBackup(event){
   event.target.value = '';
 }
 
-function saveProfile(){
-  state.engineer = {
-    name: document.getElementById('p_name').value.trim(),
-    business: document.getElementById('p_business').value.trim(),
-    phone: document.getElementById('p_phone').value.trim(),
-    address: document.getElementById('p_address').value.trim()
-  };
-  saveState();
-  alert('Profile saved.');
-}
-
 /* ---------------- Print ---------------- */
 
 function buildLetterhead(title){
-  const e = state.engineer;
+  const p = state.profile;
   const dateStr = new Date().toLocaleDateString('en-IN', { year:'numeric', month:'long', day:'numeric' });
   return `
     <div class="print-letterhead">
       <span class="meta-date">Printed: ${dateStr}</span>
-      <div class="biz">${escapeHtml(e.business || e.name || 'Site Ledger')}</div>
+      <div class="biz">${escapeHtml(p.business || p.name || 'Site Ledger')}</div>
       <div class="meta">
-        ${e.name ? escapeHtml(e.name) + ' &nbsp;·&nbsp; ' : ''}${e.phone ? escapeHtml(e.phone) + ' &nbsp;·&nbsp; ' : ''}${escapeHtml(e.address || '')}
+        ${p.name ? escapeHtml(p.name) + ' &nbsp;·&nbsp; ' : ''}${p.phone ? escapeHtml(p.phone) + ' &nbsp;·&nbsp; ' : ''}${escapeHtml(p.address || '')}
       </div>
       <div class="meta" style="margin-top:8px; font-weight:600; color:#16243A;">${title}</div>
     </div>
   `;
 }
 
-function printReport(type, id){
-  let body = '';
-  if(type === 'summary'){
-    const overall = overallTotals();
-    let rows = '';
-    state.clients.forEach(c => {
-      const t = clientTotals(c.id);
-      rows += `<tr><td>${escapeHtml(c.name)}</td><td class="num">${fmt(t.credit)}</td><td class="num">${fmt(t.debit)}</td><td class="num">${fmt(t.balance)}</td></tr>`;
-    });
-    body = buildLetterhead('Engineer Summary — All Clients') + `
-      <table class="ledger"><thead><tr><th>Client</th><th class="num">Total credit</th><th class="num">Total debit</th><th class="num">Net balance</th></tr></thead>
-      <tbody>${rows}<tr class="grand-total"><td>Grand total</td><td class="num">${fmt(overall.credit)}</td><td class="num">${fmt(overall.debit)}</td><td class="num">${fmt(overall.balance)}</td></tr></tbody></table>`;
-  } else if(type === 'all'){
-    const clientMap = {}; state.clients.forEach(c => clientMap[c.id] = c.name);
-    let rows = '';
-    state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-      rows += `<tr><td class="date">${t.date}</td><td>${escapeHtml(clientMap[t.clientId]||'')}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.material||'—')}</td><td>${escapeHtml(t.notes||'')}</td></tr>`;
-    });
-    body = buildLetterhead('All Entries — Full Ledger') + `
-      <table class="ledger"><thead><tr><th class="date">Date</th><th>Client</th><th>Type</th><th class="num">Amount</th><th>Material</th><th>Notes</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
-  } else if(type === 'client'){
-    const client = state.clients.find(c => c.id === id);
-    const totals = clientTotals(id);
-    let bal = 0, rows = '';
-    clientTx(id).forEach(t => {
-      bal += (t.type === 'Credit' ? t.amount : -t.amount);
-      rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.material||'—')}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
-    });
-    body = buildLetterhead('Client Statement — ' + client.name) + `
-      <p style="font-size:14px; margin-bottom:14px;"><strong>Net balance: ${fmt(totals.balance)}</strong> (${totals.balance>=0?'client in credit':'balance owed'})</p>
-      <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Material</th><th>Notes</th><th class="num">Balance</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+function printSummaryReport(){
+  const overall = overallTotals();
+  let clientRows = '';
+  accountsFor('client').forEach(c => {
+    const cs = totalsFor('client', c.id, 'client');
+    const es = totalsFor('client', c.id, 'project');
+    clientRows += `<tr><td>${escapeHtml(c.name)}</td><td class="num">${fmt(cs.balance)}</td><td class="num">${fmt(es.balance)}</td><td class="num">${fmt(cs.balance+es.balance)}</td></tr>`;
+  });
+  function secRows(section){
+    return accountsFor(section).map(a => {
+      const t = totalsFor(section, a.id, null);
+      return `<tr><td>${escapeHtml(a.name)}</td><td class="num">${fmt(t.credit)}</td><td class="num">${fmt(t.debit)}</td><td class="num">${fmt(t.balance)}</td></tr>`;
+    }).join('');
   }
+  const body = buildLetterhead('Business Summary Report') + `
+    <h2 class="section-title" style="margin-top:0;">Clients</h2>
+    <table class="ledger"><thead><tr><th>Client</th><th class="num">Client Selavu</th><th class="num">Engineer Selavu</th><th class="num">Net</th></tr></thead><tbody>${clientRows}</tbody></table>
+    <h2 class="section-title">Labour</h2>
+    <table class="ledger"><thead><tr><th>Labour</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${secRows('labour')}</tbody></table>
+    <h2 class="section-title">Material</h2>
+    <table class="ledger"><thead><tr><th>Material</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${secRows('material')}</tbody></table>
+    <h2 class="section-title">Supplier</h2>
+    <table class="ledger"><thead><tr><th>Supplier</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${secRows('supplier')}</tbody></table>
+    <h2 class="section-title">Grand total</h2>
+    <table class="ledger"><tbody><tr class="grand-total"><td>Overall</td><td class="num">${fmt(overall.credit)}</td><td class="num">${fmt(overall.debit)}</td><td class="num">${fmt(overall.balance)}</td></tr></tbody></table>
+  `;
+  document.getElementById('printArea').innerHTML = body;
+  window.print();
+}
 
+function printReport(type){
+  if(type === 'all'){
+    const all = state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1);
+    let rows = '';
+    all.forEach(t => {
+      rows += `<tr><td class="date">${t.date}</td><td>${SECTION_LABELS[t.section]}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td></tr>`;
+    });
+    const body = buildLetterhead('All Entries — Full Ledger') + `
+      <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    document.getElementById('printArea').innerHTML = body;
+    window.print();
+  }
+}
+
+function printAccountReport(section, accountId, subLedger){
+  const totals = totalsFor(section, accountId, subLedger);
+  const tx = txFor(section, accountId, subLedger);
+  const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
+  let bal = 0, rows = '';
+  tx.forEach(t => {
+    bal += (t.type === 'Credit' ? t.amount : -t.amount);
+    rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
+  });
+  const body = buildLetterhead('Statement — ' + title) + `
+    <p style="font-size:14px; margin-bottom:14px;"><strong>Balance: ${fmt(totals.balance)}</strong></p>
+    <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Balance</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
   document.getElementById('printArea').innerHTML = body;
   window.print();
 }
@@ -996,58 +1066,75 @@ function printReport(type, id){
 /* ---------------- Export ---------------- */
 
 function exportCSV(){
-  let out = 'Date,Client,Type,Amount,Material/Reason,Notes\n';
-  state.transactions
-    .slice()
-    .sort((a,b)=> a.date > b.date ? 1 : -1)
-    .forEach(t => {
-      const client = state.clients.find(c => c.id === t.clientId);
-      out += [t.date, client ? client.name : '', t.type, t.amount, t.material, t.notes]
-        .map(csvEscape).join(',') + '\n';
-    });
-  downloadFile(out, 'all_transactions.csv', 'text/csv');
+  let out = 'Date,Section,Account,Type,Amount,Notes\n';
+  state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
+    out += [t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes].map(csvEscape).join(',') + '\n';
+  });
+  downloadFile(out, 'all_entries.csv', 'text/csv');
 }
 
-function exportClientCSV(clientId){
-  const client = state.clients.find(c => c.id === clientId);
-  let out = 'Date,Type,Amount,Material/Reason,Notes,Running Balance\n';
+function exportAccountCSV(section, accountId, subLedger){
+  const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? '_' + subLedgerLabel(subLedger) : '');
+  let out = 'Date,Type,Amount,Notes,Running Balance\n';
   let bal = 0;
-  clientTx(clientId).forEach(t => {
+  txFor(section, accountId, subLedger).forEach(t => {
     bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    out += [t.date, t.type, t.amount, t.material, t.notes, bal].map(csvEscape).join(',') + '\n';
+    out += [t.date, t.type, t.amount, t.notes, bal].map(csvEscape).join(',') + '\n';
   });
-  downloadFile(out, (client ? client.name : 'client') + '_ledger.csv', 'text/csv');
+  downloadFile(out, title.replace(/\s+/g,'_') + '.csv', 'text/csv');
 }
 
 function exportExcel(){
   const wb = XLSX.utils.book_new();
 
-  const txRows = [['Date','Client Name','Type','Amount','Material/Reason','Notes']];
+  const allRows = [['Date','Section','Account','Type','Amount','Notes']];
   state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-    const client = state.clients.find(c => c.id === t.clientId);
-    txRows.push([t.date, client ? client.name : '', t.type, t.amount, t.material, t.notes]);
+    allRows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes]);
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(txRows), 'Transactions');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allRows), 'All Entries');
 
-  const sumRows = [['Client Name','Total Credit','Total Debit','Net Balance']];
-  const overall = overallTotals();
-  state.clients.forEach(c => {
-    const t = clientTotals(c.id);
-    sumRows.push([c.name, t.credit, t.debit, t.balance]);
-  });
-  sumRows.push(['GRAND TOTAL', overall.credit, overall.debit, overall.balance]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumRows), 'Engineer Summary');
-
-  state.clients.forEach(c => {
-    const rows = [['Date','Type','Amount','Material/Reason','Notes','Running Balance']];
-    let bal = 0;
-    clientTx(c.id).forEach(t => {
-      bal += (t.type === 'Credit' ? t.amount : -t.amount);
-      rows.push([t.date, t.type, t.amount, t.material, t.notes, bal]);
+  const sumRows = [['Section','Account','Credit','Debit','Balance']];
+  ['labour','material','supplier'].forEach(section => {
+    accountsFor(section).forEach(a => {
+      const t = totalsFor(section, a.id, null);
+      sumRows.push([SECTION_LABELS[section], a.name, t.credit, t.debit, t.balance]);
     });
-    const safeName = c.name.replace(/[\\\/\?\*\[\]:]/g, '-').slice(0,31) || 'Client';
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), safeName);
   });
+  accountsFor('client').forEach(c => {
+    const cs = totalsFor('client', c.id, 'client');
+    const es = totalsFor('client', c.id, 'project');
+    sumRows.push(['Client', c.name + ' (Client Selavu)', cs.credit, cs.debit, cs.balance]);
+    sumRows.push(['Client', c.name + ' (Engineer Selavu)', es.credit, es.debit, es.balance]);
+  });
+  const engT = totalsFor('engineer', null, null);
+  sumRows.push(['Engineer', 'Engineer', engT.credit, engT.debit, engT.balance]);
+  const overall = overallTotals();
+  sumRows.push(['GRAND TOTAL', '', overall.credit, overall.debit, overall.balance]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumRows), 'Summary');
+
+  const usedNames = {};
+  function addAccountSheet(section, accountId, subLedger, label){
+    let safe = label.replace(/[\\\/\?\*\[\]:]/g, '-').slice(0,31) || 'Sheet';
+    let finalName = safe;
+    let n = 1;
+    while(usedNames[finalName]){ finalName = safe.slice(0, 28) + '_' + (++n); }
+    usedNames[finalName] = true;
+    const rows = [['Date','Type','Amount','Notes','Running Balance']];
+    let bal = 0;
+    txFor(section, accountId, subLedger).forEach(t => {
+      bal += (t.type === 'Credit' ? t.amount : -t.amount);
+      rows.push([t.date, t.type, t.amount, t.notes, bal]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), finalName);
+  }
+  ['labour','material','supplier'].forEach(section => {
+    accountsFor(section).forEach(a => addAccountSheet(section, a.id, null, SECTION_LABELS[section][0] + '-' + a.name));
+  });
+  accountsFor('client').forEach(c => {
+    addAccountSheet('client', c.id, 'client', c.name + '-Client');
+    addAccountSheet('client', c.id, 'project', c.name + '-Project');
+  });
+  addAccountSheet('engineer', null, null, 'Engineer');
 
   XLSX.writeFile(wb, 'Site_Ledger_Export.xlsx');
 }
@@ -1070,7 +1157,7 @@ function escapeHtml(s){
 }
 function escapeJs(s){ return String(s).replace(/'/g, "\\'"); }
 
-document.getElementById('newClientInput').addEventListener('keydown', e => { if(e.key === 'Enter') addClient(); });
+/* ---------------- Boot ---------------- */
 
 if(FIREBASE_CONFIGURED){
   auth.onAuthStateChanged(user => {
