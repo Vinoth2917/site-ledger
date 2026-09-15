@@ -421,6 +421,17 @@ function accountLabel(section, accountId, subLedger){
   if(section === 'client') return accountName(section, accountId) + ' — ' + subLedgerLabel(subLedger);
   return accountName(section, accountId) + ' (' + SECTION_LABELS[section] + ')';
 }
+function linkedClientNameFor(tx){
+  if(!tx.linkGroupId) return null;
+  const sib = state.transactions.find(o => o.linkGroupId === tx.linkGroupId && o.section === 'client');
+  return sib ? accountName('client', sib.accountId) : null;
+}
+function primarySiblingLabelFor(tx){
+  if(!tx.linkGroupId) return null;
+  const primary = state.transactions.find(o => o.linkGroupId === tx.linkGroupId && o.auto === false);
+  if(!primary || primary.id === tx.id) return null;
+  return accountLabel(primary.section, primary.accountId, primary.subLedger);
+}
 
 function addAccount(section, name){
   name = name.trim();
@@ -498,6 +509,14 @@ function saveDailyEntry(){
   const batch = [{ id: uid('t'), date, section, accountId, subLedger, type, amount, notes, linkGroupId, auto:false }];
 
   if(section === 'labour' || section === 'material' || section === 'supplier'){
+    // Always mirror to Engineer's own account — this money passed through
+    // the engineer's hands whether or not it's also linked to a client/supplier.
+    batch.push({
+      id: uid('t'), date, section:'engineer', accountId:null, subLedger:null,
+      type, amount, notes: notes || (SECTION_LABELS[section] + ': ' + accountName(section, accountId)),
+      linkGroupId, auto:true
+    });
+
     const linkClientEl = document.getElementById('de_link_client');
     const linkClientId = linkClientEl ? linkClientEl.value : '';
     if(linkClientId){
@@ -721,8 +740,12 @@ function renderDailyEntry(){
       </div>
 
       ${(section === 'labour' || section === 'material' || section === 'supplier') ? `
+      <p style="font-size:12px; color:var(--muted); margin:-6px 0 14px;">
+        ℹ This will automatically also be recorded in your <strong>Engineer</strong> account
+        (the money is coming out of your own pocket to pay them).
+      </p>
       <div class="link-box">
-        <div class="link-title">OPTIONAL — LINK THIS TO ANOTHER LEDGER</div>
+        <div class="link-title">OPTIONAL — ALSO LINK THIS TO A CLIENT'S PROJECT / SUPPLIER</div>
         <div class="row" style="margin-bottom:0;">
           <div class="field">
             <label>Also add to a client's project?</label>
@@ -756,10 +779,12 @@ function renderAccountPage(section, accountId, subLedger){
   const totals = totalsFor(section, accountId, subLedger);
   const tx = txFor(section, accountId, subLedger);
   const title = section === 'engineer' ? 'Engineer' : accountName(section, accountId);
+  const showForClient = (section === 'labour' || section === 'material' || section === 'supplier');
+  const showSource = (section === 'engineer');
 
   let runBal = 0, rows = '';
   if(tx.length === 0){
-    rows = `<tr><td colspan="6"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
+    rows = `<tr><td colspan="7"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
   } else {
     tx.forEach(t => {
       runBal += (t.type === 'Credit' ? t.amount : -t.amount);
@@ -767,10 +792,13 @@ function renderAccountPage(section, accountId, subLedger){
         ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
         : (t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
           ? `<span class="link-tag" title="Linked to another ledger">🔗 linked to others</span>` : '');
+      const forClientCell = showForClient ? `<td>${escapeHtml(linkedClientNameFor(t) || '—')}</td>` : '';
+      const sourceCell = showSource ? `<td>${escapeHtml(primarySiblingLabelFor(t) || 'Direct entry')}</td>` : '';
       rows += `<tr>
         <td class="date">${t.date}</td>
         <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
         <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
+        ${forClientCell}${sourceCell}
         <td>${escapeHtml(t.notes || '')}</td>
         <td class="num">${fmt(runBal)}</td>
         <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
@@ -784,8 +812,7 @@ function renderAccountPage(section, accountId, subLedger){
       <button class="${subLedger==='project'?'active':''}" onclick="goTo('client:${accountId}:project')">Engineer Selavu</button>
     </div>` : '';
 
-  const printType = section === 'client' ? 'client' : 'account';
-  const printArgs = section === 'client' ? `'${section}','${accountId}','${subLedger}'` : `'${section}','${accountId}',''`;
+  const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
 
   document.getElementById('mainContent').innerHTML = `
     <div class="page-header">
@@ -803,7 +830,7 @@ function renderAccountPage(section, accountId, subLedger){
       ${section !== 'engineer' ? `<button class="ghost" onclick="deleteAccount('${section}','${accountId}')" style="color:var(--debit); border-color:var(--debit);">Delete this ${SECTION_LABELS[section].toLowerCase()}</button>` : ''}
     </div>
     <table class="ledger">
-      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Running balance</th><th></th></tr></thead>
+      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th>${extraHeader}<th>Notes</th><th class="num">Running balance</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
