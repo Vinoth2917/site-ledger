@@ -462,8 +462,15 @@ function totalsFor(section, accountId, subLedger){
   return { credit, debit, balance: credit - debit };
 }
 function overallTotals(){
+  // Only count the entry you actually typed (not the auto-created linked
+  // copies) so one real purchase isn't counted multiple times in the
+  // business-wide total. Each individual account's own page still shows
+  // every entry that belongs to it, including linked copies.
   let credit = 0, debit = 0;
-  state.transactions.forEach(t => { if(t.type === 'Credit') credit += t.amount; else debit += t.amount; });
+  state.transactions.forEach(t => {
+    if(t.auto) return;
+    if(t.type === 'Credit') credit += t.amount; else debit += t.amount;
+  });
   return { credit, debit, balance: credit - debit };
 }
 
@@ -756,8 +763,10 @@ function renderAccountPage(section, accountId, subLedger){
   } else {
     tx.forEach(t => {
       runBal += (t.type === 'Credit' ? t.amount : -t.amount);
-      const linkedTag = t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
-        ? `<span class="link-tag" title="Linked with another ledger">🔗</span>` : '';
+      const linkedTag = t.auto
+        ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
+        : (t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
+          ? `<span class="link-tag" title="Linked to another ledger">🔗 linked to others</span>` : '');
       rows += `<tr>
         <td class="date">${t.date}</td>
         <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
