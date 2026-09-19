@@ -105,16 +105,16 @@
   .nav-top{ border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:8px; }
 
   .section-group{ border-bottom:1px solid var(--line); }
-  .section-head{
+  .section-group > summary.section-head{
     display:flex; align-items:center; justify-content:space-between;
     padding:11px 18px; cursor:pointer; font-size:11.5px; font-weight:700;
-    letter-spacing:0.4px; color:var(--ink-soft);
+    letter-spacing:0.4px; color:var(--ink-soft); list-style:none;
   }
-  .section-head:hover{ background:#E3E0D5; }
-  .section-head .caret{ font-size:10px; color:var(--muted); transition:transform .15s; }
-  .section-head.open .caret{ transform:rotate(90deg); }
-  .section-body{ display:none; padding-bottom:6px; }
-  .section-body.open{ display:block; }
+  .section-group > summary.section-head::-webkit-details-marker{ display:none; }
+  .section-group > summary.section-head:hover{ background:#E3E0D5; }
+  .section-head .caret{ font-size:10px; color:var(--muted); transition:transform .15s; display:inline-block; }
+  .section-group[open] > summary.section-head .caret{ transform:rotate(90deg); }
+  .section-body{ padding-bottom:6px; }
   .section-body .nav-item{ padding-left:28px; font-size:13.5px; }
   .add-account-row{ padding:6px 18px 10px 28px; display:flex; gap:6px; }
   .add-account-row input{ flex:1; font-size:12.5px; padding:6px 8px; min-width:0; }
@@ -336,6 +336,43 @@ function fmt(n){ return '₹' + (Math.round((n + Number.EPSILON) * 100) / 100).t
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function seedAccounts(names){ return names.map(n => ({ id: uid('a'), name: n })); }
 
+function creditDebitChart(credit, debit, size, onDark){
+  size = size || 130;
+  const r = size/2 - 9;
+  const cx = size/2, cy = size/2;
+  const total = credit + debit;
+  const circumference = 2 * Math.PI * r;
+  let ring;
+  if(total <= 0){
+    ring = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#DBD8CC" stroke-width="16"/>`;
+  } else {
+    const creditLen = (credit/total) * circumference;
+    ring = `
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#F1EFE6" stroke-width="16"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#2B6F62" stroke-width="16"
+        stroke-dasharray="${creditLen} ${circumference}" stroke-dashoffset="0"
+        transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#8B3A2E" stroke-width="16"
+        stroke-dasharray="${circumference-creditLen} ${circumference}" stroke-dashoffset="-${creditLen}"
+        transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>
+    `;
+  }
+  const creditPct = total > 0 ? Math.round((credit/total)*100) : 0;
+  const debitPct = total > 0 ? 100 - creditPct : 0;
+  const mutedColor = onDark ? '#B9B4A2' : 'var(--muted)';
+  const creditColor = onDark ? '#7FC4B3' : 'var(--credit)';
+  const debitColor = onDark ? '#E39C8D' : 'var(--debit)';
+  return `
+    <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${ring}</svg>
+      <div style="font-size:12.5px; line-height:1.9;">
+        <div><span style="display:inline-block; width:10px; height:10px; background:#2B6F62; border-radius:2px; margin-right:6px;"></span>Credit&nbsp; <strong style="font-family:'IBM Plex Mono', monospace; color:${creditColor};">${fmt(credit)}</strong> <span style="color:${mutedColor};">(${creditPct}%)</span></div>
+        <div><span style="display:inline-block; width:10px; height:10px; background:#8B3A2E; border-radius:2px; margin-right:6px;"></span>Debit&nbsp; <strong style="font-family:'IBM Plex Mono', monospace; color:${debitColor};">${fmt(debit)}</strong> <span style="color:${mutedColor};">(${debitPct}%)</span></div>
+      </div>
+    </div>
+  `;
+}
+
 function defaultAccounts(){
   return {
     labour: seedAccounts(['Mason Labour','Centring','Concrete','Electric','Carpenter','Painting','Plumber','Plastering','Tiles']),
@@ -490,6 +527,23 @@ function overallTotals(){
   });
   return { credit, debit, balance: credit - debit };
 }
+function sectionGrandTotal(section){
+  let credit = 0, debit = 0;
+  if(section === 'client'){
+    accountsFor('client').forEach(a => {
+      const cs = totalsFor('client', a.id, 'client');
+      const es = totalsFor('client', a.id, 'project');
+      credit += cs.credit + es.credit;
+      debit += cs.debit + es.debit;
+    });
+  } else {
+    accountsFor(section).forEach(a => {
+      const t = totalsFor(section, a.id, null);
+      credit += t.credit; debit += t.debit;
+    });
+  }
+  return { credit, debit, balance: credit - debit };
+}
 
 function saveDailyEntry(){
   const date = document.getElementById('de_date').value || todayStr();
@@ -602,11 +656,6 @@ function render(){
 
 /* ---------------- Sidebar ---------------- */
 
-function toggleSection(section){
-  expandedSections[section] = !expandedSections[section];
-  renderSidebar();
-}
-
 function renderSidebar(){
   const v = parseView(activeView);
   const sb = document.getElementById('sidebar');
@@ -621,12 +670,13 @@ function renderSidebar(){
   ['labour','material','supplier','client'].forEach(section => {
     const open = expandedSections[section];
     const accounts = accountsFor(section);
-    html += `<div class="section-group">
-      <div class="section-head ${open?'open':''}" onclick="toggleSection('${section}')">
+    const secTotal = sectionGrandTotal(section);
+    html += `<details class="section-group" ${open?'open':''} ontoggle="expandedSections['${section}']=this.open;">
+      <summary class="section-head">
         <span><span class="caret">▶</span> ${SECTION_LABELS[section].toUpperCase()}</span>
-        <span style="font-weight:400; color:var(--muted);">${accounts.length}</span>
-      </div>
-      <div class="section-body ${open?'open':''}">`;
+        <span class="bal ${secTotal.balance>=0?'pos':'neg'}" style="font-weight:600;">${fmt(secTotal.balance)}</span>
+      </summary>
+      <div class="section-body">`;
     accounts.forEach(a => {
       const isActive = v.kind === 'account' && v.section === section && v.accountId === a.id;
       let balDisplay = '';
@@ -645,11 +695,11 @@ function renderSidebar(){
       </div>`;
     });
     html += `</div>
-      <div class="add-account-row" style="display:${open?'flex':'none'};">
+      <div class="add-account-row">
         <input type="text" id="add_${section}" placeholder="New ${SECTION_LABELS[section].toLowerCase()}…">
         <button class="small" onclick="handleAddAccount('${section}')">+</button>
       </div>
-    </div>`;
+    </details>`;
   });
 
   const engBal = totalsFor('engineer', null, null).balance;
@@ -829,6 +879,9 @@ function renderAccountPage(section, accountId, subLedger){
       </div>
     </div>
     ${subTabs}
+    <div class="no-print" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; margin-bottom:18px; max-width:480px;">
+      ${creditDebitChart(totals.credit, totals.debit)}
+    </div>
     <div class="summary-actions no-print">
       <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
       <button class="ghost" onclick="exportAccountCSV('${section}','${accountId||''}','${subLedger||''}')">Export (.csv)</button>
@@ -855,6 +908,7 @@ function renderSummary(){
 
   function sectionTable(section){
     const accounts = accountsFor(section);
+    const total = sectionGrandTotal(section);
     if(accounts.length === 0) return '<div class="empty-state">No accounts yet.</div>';
     let rows = '';
     accounts.forEach(a => {
@@ -866,7 +920,16 @@ function renderSummary(){
         <td class="num">${fmt(t.balance)}</td>
       </tr>`;
     });
-    return `<table class="ledger"><thead><tr><th>${SECTION_LABELS[section]}</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `
+      <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+        <div style="flex:1; min-width:280px;">
+          <table class="ledger"><thead><tr><th>${SECTION_LABELS[section]}</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead>
+          <tbody>${rows}<tr class="grand-total"><td>Section total</td><td class="num">${fmt(total.credit)}</td><td class="num">${fmt(total.debit)}</td><td class="num">${fmt(total.balance)}</td></tr></tbody></table>
+        </div>
+        <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px;">
+          ${creditDebitChart(total.credit, total.debit, 110)}
+        </div>
+      </div>`;
   }
 
   let clientRows = '';
@@ -881,9 +944,17 @@ function renderSummary(){
       <td class="num" style="color:${net>=0?'var(--credit)':'var(--debit)'}; font-weight:600;">${fmt(net)}</td>
     </tr>`;
   });
+  const clientTotal = sectionGrandTotal('client');
   const clientTable = accountsFor('client').length === 0 ? '<div class="empty-state">No clients yet.</div>' : `
-    <table class="ledger"><thead><tr><th>Client</th><th class="num">Client Selavu</th><th class="num">Engineer Selavu</th><th class="num">Net position</th></tr></thead><tbody>${clientRows}</tbody></table>
-    <p style="font-size:12px; color:var(--muted); margin-top:8px;">Net position = payments received minus project cost so far. Positive means you're ahead on that project; negative means you've spent more than you've been paid so far.</p>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+      <div style="flex:1; min-width:320px;">
+        <table class="ledger"><thead><tr><th>Client</th><th class="num">Client Selavu</th><th class="num">Engineer Selavu</th><th class="num">Net position</th></tr></thead><tbody>${clientRows}</tbody></table>
+        <p style="font-size:12px; color:var(--muted); margin-top:8px;">Net position = payments received minus project cost so far. Positive means you're ahead on that project; negative means you've spent more than you've been paid so far.</p>
+      </div>
+      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px;">
+        ${creditDebitChart(clientTotal.credit, clientTotal.debit, 110)}
+      </div>
+    </div>
   `;
 
   const engTotals = totalsFor('engineer', null, null);
@@ -894,6 +965,11 @@ function renderSummary(){
       <button class="ghost" onclick="exportExcel()">Export full workbook (.xlsx)</button>
       <button class="ghost" onclick="exportCSV()">Export all entries (.csv)</button>
       <button class="ghost" onclick="printSummaryReport()">🖨 Print business report</button>
+    </div>
+
+    <div style="background:var(--ink); color:#EDEBE3; border-radius:var(--radius); padding:18px 20px; margin-bottom:26px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+      <div style="font-family:'Zilla Slab', serif; font-size:15px; font-weight:700; letter-spacing:0.3px;">WHOLE BUSINESS —<br>CREDIT VS DEBIT</div>
+      ${creditDebitChart(overall.credit, overall.debit, 110, true)}
     </div>
 
     <h2 class="section-title">Clients</h2>
@@ -909,8 +985,15 @@ function renderSummary(){
     ${sectionTable('supplier')}
 
     <h2 class="section-title">Engineer</h2>
-    <table class="ledger"><thead><tr><th>Engineer</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead>
-    <tbody><tr><td>Engineer's own account</td><td class="num" style="color:var(--credit)">${fmt(engTotals.credit)}</td><td class="num" style="color:var(--debit)">${fmt(engTotals.debit)}</td><td class="num">${fmt(engTotals.balance)}</td></tr></tbody></table>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+      <div style="flex:1; min-width:280px;">
+        <table class="ledger"><thead><tr><th>Engineer</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead>
+        <tbody><tr><td>Engineer's own account</td><td class="num" style="color:var(--credit)">${fmt(engTotals.credit)}</td><td class="num" style="color:var(--debit)">${fmt(engTotals.debit)}</td><td class="num">${fmt(engTotals.balance)}</td></tr></tbody></table>
+      </div>
+      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px;">
+        ${creditDebitChart(engTotals.credit, engTotals.debit, 110)}
+      </div>
+    </div>
 
     <h2 class="section-title">Grand total — every account, every section</h2>
     <table class="ledger"><tbody><tr class="grand-total">
@@ -1061,6 +1144,7 @@ function printSummaryReport(){
     }).join('');
   }
   const body = buildLetterhead('Business Summary Report') + `
+    <div style="margin-bottom:18px;">${creditDebitChart(overall.credit, overall.debit, 100)}</div>
     <h2 class="section-title" style="margin-top:0;">Clients</h2>
     <table class="ledger"><thead><tr><th>Client</th><th class="num">Client Selavu</th><th class="num">Engineer Selavu</th><th class="num">Net</th></tr></thead><tbody>${clientRows}</tbody></table>
     <h2 class="section-title">Labour</h2>
@@ -1102,7 +1186,8 @@ function printAccountReport(section, accountId, subLedger){
     rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
   });
   const body = buildLetterhead('Statement — ' + title) + `
-    <p style="font-size:14px; margin-bottom:14px;"><strong>Balance: ${fmt(totals.balance)}</strong></p>
+    <p style="font-size:14px; margin-bottom:10px;"><strong>Balance: ${fmt(totals.balance)}</strong></p>
+    <div style="margin-bottom:18px;">${creditDebitChart(totals.credit, totals.debit, 100)}</div>
     <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Balance</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   document.getElementById('printArea').innerHTML = body;
