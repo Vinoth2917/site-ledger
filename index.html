@@ -336,6 +336,54 @@ function fmt(n){ return '₹' + (Math.round((n + Number.EPSILON) * 100) / 100).t
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function seedAccounts(names){ return names.map(n => ({ id: uid('a'), name: n })); }
 
+function categoryBreakdownFor(section, accountId, subLedger){
+  // Groups this ledger's expenses (Debit entries) by where the money actually
+  // went — Cement, Mason Labour, a specific supplier, etc. — by tracing each
+  // auto-linked entry back to the primary entry that created it.
+  const tx = txFor(section, accountId, subLedger).filter(t => t.type === 'Debit');
+  const map = {};
+  tx.forEach(t => {
+    const label = t.auto ? (primarySiblingLabelFor(t) || 'Other') : 'Direct entry (not linked)';
+    map[label] = (map[label] || 0) + t.amount;
+  });
+  return map;
+}
+
+function multiSliceChart(dataObj, size){
+  size = size || 150;
+  const r = size/2 - 9;
+  const cx = size/2, cy = size/2;
+  const entries = Object.entries(dataObj).sort((a,b) => b[1]-a[1]);
+  const total = entries.reduce((s,[,v]) => s+v, 0);
+  const palette = ['#2B6F62','#C1512A','#4A6FA5','#8A6D3B','#8B3A2E','#5B7065','#A0522D','#6B5B95','#3B6E8F','#B08D57','#7A5C61','#4E6E58'];
+  let ring = '';
+  if(total <= 0){
+    ring = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#DBD8CC" stroke-width="16"/>`;
+  } else {
+    const circumference = 2 * Math.PI * r;
+    let offsetAccum = 0;
+    entries.forEach(([label, val], i) => {
+      const len = (val/total) * circumference;
+      const color = palette[i % palette.length];
+      ring += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="16"
+        stroke-dasharray="${len} ${circumference}" stroke-dashoffset="${-offsetAccum}"
+        transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>`;
+      offsetAccum += len;
+    });
+  }
+  const legend = entries.map(([label, val], i) => {
+    const pct = total > 0 ? Math.round((val/total)*100) : 0;
+    const color = palette[i % palette.length];
+    return `<div style="margin-bottom:4px;"><span style="display:inline-block; width:10px; height:10px; background:${color}; border-radius:2px; margin-right:6px;"></span>${escapeHtml(label)}&nbsp; <strong style="font-family:'IBM Plex Mono', monospace;">${fmt(val)}</strong> <span style="color:var(--muted);">(${pct}%)</span></div>`;
+  }).join('');
+  return `
+    <div style="display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap;">
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${ring}</svg>
+      <div style="font-size:12px; line-height:1.5; max-width:240px;">${legend || '<span style="color:var(--muted);">No expenses yet.</span>'}</div>
+    </div>
+  `;
+}
+
 function creditDebitChart(credit, debit, size, onDark){
   size = size || 130;
   const r = size/2 - 9;
@@ -879,8 +927,16 @@ function renderAccountPage(section, accountId, subLedger){
       </div>
     </div>
     ${subTabs}
-    <div class="no-print" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; margin-bottom:18px; max-width:480px;">
-      ${creditDebitChart(totals.credit, totals.debit)}
+    <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
+      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:480px;">
+        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">CREDIT VS DEBIT</div>
+        ${creditDebitChart(totals.credit, totals.debit)}
+      </div>
+      ${(section === 'engineer' || (section === 'client' && subLedger === 'project')) ? `
+      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:420px;">
+        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">WHERE THE MONEY WENT</div>
+        ${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 130)}
+      </div>` : ''}
     </div>
     <div class="summary-actions no-print">
       <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
@@ -1185,9 +1241,13 @@ function printAccountReport(section, accountId, subLedger){
     bal += (t.type === 'Credit' ? t.amount : -t.amount);
     rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
   });
+  const showBreakdown = (section === 'engineer' || (section === 'client' && subLedger === 'project'));
   const body = buildLetterhead('Statement — ' + title) + `
     <p style="font-size:14px; margin-bottom:10px;"><strong>Balance: ${fmt(totals.balance)}</strong></p>
-    <div style="margin-bottom:18px;">${creditDebitChart(totals.credit, totals.debit, 100)}</div>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px;">
+      <div>${creditDebitChart(totals.credit, totals.debit, 100)}</div>
+      ${showBreakdown ? `<div>${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 100)}</div>` : ''}
+    </div>
     <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Balance</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   document.getElementById('printArea').innerHTML = body;
