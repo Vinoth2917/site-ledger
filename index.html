@@ -149,6 +149,14 @@
   .page-balance.pos{ color:var(--credit); }
   .page-balance.neg{ color:var(--debit); }
   .page-balance .tag{ display:block; font-size:10.5px; font-family:'IBM Plex Sans', sans-serif; color:var(--muted); font-weight:500; letter-spacing:0.3px; }
+  .page-stats{ display:flex; gap:28px; flex-wrap:wrap; margin-bottom:22px; }
+  .page-stat{ text-align:left; }
+  .page-stat .label{ font-size:10.5px; color:var(--muted); letter-spacing:0.4px; }
+  .page-stat .value{ font-family:'IBM Plex Mono', monospace; font-size:20px; font-weight:600; }
+  .page-stat.credit .value{ color:var(--credit); }
+  .page-stat.debit .value{ color:var(--debit); }
+  .page-stat.balance .value.pos{ color:var(--credit); }
+  .page-stat.balance .value.neg{ color:var(--debit); }
 
   .subledger-tabs{ display:flex; gap:4px; margin-bottom:18px; }
   .subledger-tabs button{
@@ -921,10 +929,11 @@ function renderAccountPage(section, accountId, subLedger){
   document.getElementById('mainContent').innerHTML = `
     <div class="page-header">
       <h1>${escapeHtml(title)}${section==='client' ? ' — ' + subLedgerLabel(subLedger) : ''}</h1>
-      <div class="page-balance ${totals.balance>=0?'pos':'neg'}">
-        <span class="tag">${section==='engineer' ? 'Net balance' : (totals.balance>=0 ? 'In credit' : 'Balance due')}</span>
-        ${fmt(totals.balance)}
-      </div>
+    </div>
+    <div class="page-stats">
+      <div class="page-stat credit"><div class="label">TOTAL CREDIT</div><div class="value">${fmt(totals.credit)}</div></div>
+      <div class="page-stat debit"><div class="label">TOTAL DEBIT</div><div class="value">${fmt(totals.debit)}</div></div>
+      <div class="page-stat balance"><div class="label">${section==='engineer' ? 'NET BALANCE' : (totals.balance>=0 ? 'IN CREDIT' : 'BALANCE DUE')}</div><div class="value ${totals.balance>=0?'pos':'neg'}">${fmt(totals.balance)}</div></div>
     </div>
     ${subTabs}
     <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
@@ -1243,7 +1252,11 @@ function printAccountReport(section, accountId, subLedger){
   });
   const showBreakdown = (section === 'engineer' || (section === 'client' && subLedger === 'project'));
   const body = buildLetterhead('Statement — ' + title) + `
-    <p style="font-size:14px; margin-bottom:10px;"><strong>Balance: ${fmt(totals.balance)}</strong></p>
+    <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
+      <div><div style="font-size:10px; color:#777;">TOTAL CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">TOTAL DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
+    </div>
     <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px;">
       <div>${creditDebitChart(totals.credit, totals.debit, 100)}</div>
       ${showBreakdown ? `<div>${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 100)}</div>` : ''}
