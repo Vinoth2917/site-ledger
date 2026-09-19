@@ -432,6 +432,12 @@ function primarySiblingLabelFor(tx){
   if(!primary || primary.id === tx.id) return null;
   return accountLabel(primary.section, primary.accountId, primary.subLedger);
 }
+function siblingLabelsFor(tx){
+  if(!tx.linkGroupId) return [];
+  return state.transactions
+    .filter(o => o.linkGroupId === tx.linkGroupId && o.id !== tx.id)
+    .map(o => accountLabel(o.section, o.accountId, o.subLedger));
+}
 
 function addAccount(section, name){
   name = name.trim();
@@ -919,35 +925,38 @@ function renderSummary(){
 /* ---------------- All Entries (master log) ---------------- */
 
 function renderAllEntries(){
-  const all = state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+  // Show only what you actually typed (one row per real transaction) —
+  // the auto-created linked copies still live on their own account pages,
+  // but here they'd just repeat the same event, so we list where they went instead.
+  const primaryOnly = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
   let rows = '';
-  if(all.length === 0){
+  if(primaryOnly.length === 0){
     rows = `<tr><td colspan="7"><div class="empty-state">No entries logged yet.</div></td></tr>`;
   } else {
-    all.slice().reverse().forEach(t => {
+    primaryOnly.slice().reverse().forEach(t => {
       const label = accountLabel(t.section, t.accountId, t.subLedger);
-      const linkedTag = t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
-        ? `<span class="link-tag" title="Linked with another ledger">🔗</span>` : '';
+      const links = siblingLabelsFor(t);
+      const linksCell = links.length ? escapeHtml(links.join(', ')) : '—';
       rows += `<tr>
         <td class="date">${t.date}</td>
         <td>${escapeHtml(SECTION_LABELS[t.section])}</td>
         <td>${escapeHtml(label)}</td>
-        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
+        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span></td>
         <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
-        <td>${escapeHtml(t.notes || '')}</td>
+        <td style="font-size:12.5px; color:var(--muted);">${linksCell}</td>
         <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
       </tr>`;
     });
   }
 
   document.getElementById('mainContent').innerHTML = `
-    <h1 class="page-title">All Entries — every section, one log</h1>
+    <h1 class="page-title">All Entries — one row per real transaction</h1>
     <div class="summary-actions">
       <button class="ghost" onclick="exportCSV()">Export all (.csv)</button>
       <button class="ghost" onclick="printReport('all')">🖨 Print full ledger</button>
     </div>
     <table class="ledger">
-      <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th></th></tr></thead>
+      <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -1069,13 +1078,14 @@ function printSummaryReport(){
 
 function printReport(type){
   if(type === 'all'){
-    const all = state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1);
+    const primaryOnly = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1);
     let rows = '';
-    all.forEach(t => {
-      rows += `<tr><td class="date">${t.date}</td><td>${SECTION_LABELS[t.section]}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td></tr>`;
+    primaryOnly.forEach(t => {
+      const links = siblingLabelsFor(t).join(', ') || '—';
+      rows += `<tr><td class="date">${t.date}</td><td>${SECTION_LABELS[t.section]}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td style="font-size:11px;">${escapeHtml(links)}</td></tr>`;
     });
     const body = buildLetterhead('All Entries — Full Ledger') + `
-      <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
+      <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
     document.getElementById('printArea').innerHTML = body;
     window.print();
@@ -1102,9 +1112,10 @@ function printAccountReport(section, accountId, subLedger){
 /* ---------------- Export ---------------- */
 
 function exportCSV(){
-  let out = 'Date,Section,Account,Type,Amount,Notes\n';
-  state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-    out += [t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes].map(csvEscape).join(',') + '\n';
+  let out = 'Date,Section,Account,Type,Amount,Notes,Also Recorded In\n';
+  state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
+    const links = siblingLabelsFor(t).join('; ');
+    out += [t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, links].map(csvEscape).join(',') + '\n';
   });
   downloadFile(out, 'all_entries.csv', 'text/csv');
 }
