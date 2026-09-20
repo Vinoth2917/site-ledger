@@ -443,9 +443,14 @@ let state = { accounts: defaultAccounts(), transactions: [], profile: defaultPro
 let loaded = false;
 let activeView = 'entry'; // 'entry' | 'summary' | 'all' | 'profile' | 'section:accountId:subLedger'
 let expandedSections = { labour:false, material:false, supplier:false, client:true };
-let pendingType = 'Debit';
 let pendingSection = 'client';
 let presetAccount = null; // {section, accountId, subLedger} set when jumping from an account page to the entry form
+let dateFilter = todayStr();
+let pendingClientType = 'Credit';
+let pendingLabourType = 'Debit';
+let pendingMaterialType = 'Debit';
+let pendingSupplierType = 'Debit';
+let pendingEngineerType = 'Debit';
 
 const SECTION_LABELS = { labour:'Labour', material:'Material', supplier:'Supplier', client:'Client', engineer:'Engineer' };
 
@@ -513,6 +518,20 @@ function accountLabel(section, accountId, subLedger){
   if(section === 'engineer') return 'Engineer';
   if(section === 'client') return accountName(section, accountId) + ' — ' + subLedgerLabel(subLedger);
   return accountName(section, accountId) + ' (' + SECTION_LABELS[section] + ')';
+}
+function clientFlatName(clientId, subLedger){
+  // Engineer requested: "Sampath" = Engineer Selavu, "Sampath 2" = Client Selavu
+  const name = accountName('client', clientId);
+  return subLedger === 'client' ? name + ' 2' : name;
+}
+function flattenedClientList(){
+  // Every client appears twice: once as itself (Engineer Selavu) and once as "Name 2" (Client Selavu)
+  const out = [];
+  accountsFor('client').forEach(c => {
+    out.push({ value: c.id + ':project', label: clientFlatName(c.id, 'project') });
+    out.push({ value: c.id + ':client', label: clientFlatName(c.id, 'client') });
+  });
+  return out;
 }
 function linkedClientNameFor(tx){
   if(!tx.linkGroupId) return null;
@@ -603,63 +622,81 @@ function sectionGrandTotal(section){
 
 function saveDailyEntry(){
   const date = document.getElementById('de_date').value || todayStr();
-  const section = pendingSection;
-  const type = pendingType;
-  const amount = parseFloat(document.getElementById('de_amount').value);
-  const notes = document.getElementById('de_notes').value.trim();
+  let savedCount = 0;
 
-  if(!amount || amount <= 0){ alert('Enter a valid amount.'); return; }
-
-  let accountId = null, subLedger = null;
-  if(section !== 'engineer'){
-    const accEl = document.getElementById('de_account');
-    accountId = accEl ? accEl.value : '';
-    if(!accountId){ alert('Choose an account.'); return; }
-  }
-  if(section === 'client'){
-    const ledgerEl = document.getElementById('de_ledger');
-    subLedger = ledgerEl ? ledgerEl.value : 'client';
-  }
-
-  const linkGroupId = uid('lg');
-  const batch = [{ id: uid('t'), date, section, accountId, subLedger, type, amount, notes, linkGroupId, auto:false }];
-
-  if(section === 'labour' || section === 'material' || section === 'supplier'){
-    // Always mirror to Engineer's own account — this money passed through
-    // the engineer's hands whether or not it's also linked to a client/supplier.
-    batch.push({
-      id: uid('t'), date, section:'engineer', accountId:null, subLedger:null,
-      type, amount, notes: notes || (SECTION_LABELS[section] + ': ' + accountName(section, accountId)),
-      linkGroupId, auto:true
+  // --- CLIENT block (direct entry into either of that client's two ledgers) ---
+  const clientSel = document.getElementById('de_client_account').value;
+  const clientAmt = parseFloat(document.getElementById('de_client_amount').value);
+  if(clientSel && clientAmt > 0){
+    const [cid, csub] = clientSel.split(':');
+    state.transactions.push({
+      id: uid('t'), date, section:'client', accountId:cid, subLedger:csub,
+      type: pendingClientType, amount: clientAmt, notes: document.getElementById('de_client_notes').value.trim(),
+      linkGroupId: uid('lg'), auto:false
     });
-
-    const linkClientEl = document.getElementById('de_link_client');
-    const linkClientId = linkClientEl ? linkClientEl.value : '';
-    if(linkClientId){
-      batch.push({
-        id: uid('t'), date, section:'client', accountId: linkClientId, subLedger:'project',
-        type, amount, notes: notes || ('From ' + SECTION_LABELS[section] + ': ' + accountName(section, accountId)),
-        linkGroupId, auto:true
-      });
-    }
-  }
-  if(section === 'material'){
-    const linkSupplierEl = document.getElementById('de_link_supplier');
-    const linkSupplierId = linkSupplierEl ? linkSupplierEl.value : '';
-    if(linkSupplierId){
-      batch.push({
-        id: uid('t'), date, section:'supplier', accountId: linkSupplierId, subLedger:null,
-        type, amount, notes: notes || ('Material: ' + accountName('material', accountId)),
-        linkGroupId, auto:true
-      });
-    }
+    savedCount++;
   }
 
-  state.transactions.push(...batch);
+  // --- LABOUR block ---
+  const labourAcc = document.getElementById('de_labour_account').value;
+  const labourAmt = parseFloat(document.getElementById('de_labour_amount').value);
+  if(labourAcc && labourAmt > 0){
+    const lg = uid('lg');
+    const notes = document.getElementById('de_labour_notes').value.trim();
+    state.transactions.push({ id: uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false });
+    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes: notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
+    const linkClient = document.getElementById('de_labour_link_client').value;
+    if(linkClient){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
+    }
+    savedCount++;
+  }
+
+  // --- MATERIAL block ---
+  const materialAcc = document.getElementById('de_material_account').value;
+  const materialAmt = parseFloat(document.getElementById('de_material_amount').value);
+  if(materialAcc && materialAmt > 0){
+    const lg = uid('lg');
+    const notes = document.getElementById('de_material_notes').value.trim();
+    state.transactions.push({ id: uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false });
+    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+    const linkClient = document.getElementById('de_material_link_client').value;
+    if(linkClient){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+    }
+    const linkSupplier = document.getElementById('de_material_link_supplier').value;
+    if(linkSupplier){
+      state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:linkSupplier, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+    }
+    savedCount++;
+  }
+
+  // --- SUPPLIER block ---
+  const supplierAcc = document.getElementById('de_supplier_account').value;
+  const supplierAmt = parseFloat(document.getElementById('de_supplier_amount').value);
+  if(supplierAcc && supplierAmt > 0){
+    const lg = uid('lg');
+    const notes = document.getElementById('de_supplier_notes').value.trim();
+    state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false });
+    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes: notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
+    const linkClient = document.getElementById('de_supplier_link_client').value;
+    if(linkClient){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
+    }
+    savedCount++;
+  }
+
+  // --- ENGINEER block (direct personal/office expense, not tied to a project) ---
+  const engineerAmt = parseFloat(document.getElementById('de_engineer_amount').value);
+  if(engineerAmt > 0){
+    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingEngineerType, amount:engineerAmt, notes: document.getElementById('de_engineer_notes').value.trim(), linkGroupId: uid('lg'), auto:false });
+    savedCount++;
+  }
+
+  if(savedCount === 0){ alert('Enter an amount in at least one section.'); return; }
   saveState();
   presetAccount = null;
-  const linkedCount = batch.length - 1;
-  alert('Entry saved' + (linkedCount > 0 ? ' and linked to ' + linkedCount + ' other page' + (linkedCount>1?'s':'') + '.' : '.'));
+  alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.');
   render();
 }
 
@@ -692,7 +729,15 @@ function parseView(view){
   return { kind:'account', section: parts[0], accountId: parts[1] || null, subLedger: parts[2] || null };
 }
 
-function goTo(view){ activeView = view; render(); }
+function goTo(view){
+  if(view !== activeView) dateFilter = todayStr();
+  activeView = view;
+  render();
+}
+function setDateFilter(value){
+  dateFilter = value;
+  render();
+}
 
 function render(){
   if(!loaded) return;
@@ -725,7 +770,6 @@ function renderSidebar(){
 
   ['labour','material','supplier','client'].forEach(section => {
     const open = expandedSections[section];
-    const accounts = accountsFor(section);
     const secTotal = sectionGrandTotal(section);
     html += `<details class="section-group" ${open?'open':''} ontoggle="expandedSections['${section}']=this.open;">
       <summary class="section-head">
@@ -733,23 +777,26 @@ function renderSidebar(){
         <span class="bal ${secTotal.balance>=0?'pos':'neg'}" style="font-weight:600;">${fmt(secTotal.balance)}</span>
       </summary>
       <div class="section-body">`;
-    accounts.forEach(a => {
-      const isActive = v.kind === 'account' && v.section === section && v.accountId === a.id;
-      let balDisplay = '';
-      if(section === 'client'){
-        const cBal = totalsFor('client', a.id, 'client').balance;
-        const pBal = totalsFor('client', a.id, 'project').balance;
-        const net = cBal + pBal;
-        balDisplay = `<span class="bal ${net>=0?'pos':'neg'}">${fmt(net)}</span>`;
-      } else {
+
+    if(section === 'client'){
+      flattenedClientList().forEach(opt => {
+        const [cid, csub] = opt.value.split(':');
+        const isActive = v.kind === 'account' && v.section === 'client' && v.accountId === cid && v.subLedger === csub;
+        const t = totalsFor('client', cid, csub);
+        html += `<div class="nav-item ${isActive?'active':''}" onclick="goTo('client:${cid}:${csub}')">
+          <span>${escapeHtml(opt.label)}</span><span class="bal ${t.balance>=0?'pos':'neg'}">${fmt(t.balance)}</span>
+        </div>`;
+      });
+    } else {
+      accountsFor(section).forEach(a => {
+        const isActive = v.kind === 'account' && v.section === section && v.accountId === a.id;
         const t = totalsFor(section, a.id, null);
-        balDisplay = `<span class="bal ${t.balance>=0?'pos':'neg'}">${fmt(t.balance)}</span>`;
-      }
-      const targetView = section === 'client' ? `client:${a.id}:client` : `${section}:${a.id}:`;
-      html += `<div class="nav-item ${isActive?'active':''}" onclick="goTo('${targetView}')">
-        <span>${escapeHtml(a.name)}</span>${balDisplay}
-      </div>`;
-    });
+        html += `<div class="nav-item ${isActive?'active':''}" onclick="goTo('${section}:${a.id}:')">
+          <span>${escapeHtml(a.name)}</span><span class="bal ${t.balance>=0?'pos':'neg'}">${fmt(t.balance)}</span>
+        </div>`;
+      });
+    }
+
     html += `</div>
       <div class="add-account-row">
         <input type="text" id="add_${section}" placeholder="New ${SECTION_LABELS[section].toLowerCase()}…">
@@ -780,126 +827,137 @@ function handleAddAccount(section){
 
 /* ---------------- Daily Entry page ---------------- */
 
-function setEntrySection(section){
-  pendingSection = section;
+function setEntryType(block, type){
+  if(block === 'client') pendingClientType = type;
+  else if(block === 'labour') pendingLabourType = type;
+  else if(block === 'material') pendingMaterialType = type;
+  else if(block === 'supplier') pendingSupplierType = type;
+  else if(block === 'engineer') pendingEngineerType = type;
   renderDailyEntry();
 }
-function setEntryType(type){
-  pendingType = type;
-  renderDailyEntry();
+
+function typeToggleHTML(block, current){
+  return `<div class="type-toggle">
+    <button type="button" class="${current==='Credit'?'active credit':''}" onclick="setEntryType('${block}','Credit')">Credit</button>
+    <button type="button" class="${current==='Debit'?'active debit':''}" onclick="setEntryType('${block}','Debit')">Debit</button>
+  </div>`;
 }
 
 function renderDailyEntry(){
   const dateVal = document.getElementById('de_date') ? document.getElementById('de_date').value : todayStr();
-  const amountVal = document.getElementById('de_amount') ? document.getElementById('de_amount').value : '';
-  const notesVal = document.getElementById('de_notes') ? document.getElementById('de_notes').value : '';
 
-  let section = pendingSection;
-  let presetAccId = '';
-  let presetSub = 'client';
+  let presetClientVal = '', presetLabour = '', presetMaterial = '', presetSupplier = '';
   if(presetAccount){
-    section = presetAccount.section;
-    pendingSection = section;
-    presetAccId = presetAccount.accountId || '';
-    presetSub = presetAccount.subLedger || 'client';
+    if(presetAccount.section === 'client') presetClientVal = (presetAccount.accountId||'') + ':' + (presetAccount.subLedger||'project');
+    if(presetAccount.section === 'labour') presetLabour = presetAccount.accountId || '';
+    if(presetAccount.section === 'material') presetMaterial = presetAccount.accountId || '';
+    if(presetAccount.section === 'supplier') presetSupplier = presetAccount.accountId || '';
   }
 
-  const accounts = accountsFor(section);
-  const accountOptions = accounts.map(a => `<option value="${a.id}" ${a.id===presetAccId?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
-  const clientOptions = accountsFor('client').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
-  const supplierOptions = accountsFor('supplier').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+  const clientDropdownOptions = flattenedClientList().map(opt =>
+    `<option value="${opt.value}" ${opt.value===presetClientVal?'selected':''}>${escapeHtml(opt.label)}</option>`).join('');
+  const labourOptions = accountsFor('labour').map(a => `<option value="${a.id}" ${a.id===presetLabour?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+  const materialOptions = accountsFor('material').map(a => `<option value="${a.id}" ${a.id===presetMaterial?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+  const supplierOptions = accountsFor('supplier').map(a => `<option value="${a.id}" ${a.id===presetSupplier?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+  const clientLinkOptions = accountsFor('client').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+
+  function block(id, title, accountLabel, accountOptions, type, extraLinksHTML){
+    return `
+    <div class="entry-form" style="margin-bottom:20px;">
+      <div style="font-family:'Zilla Slab', serif; font-weight:700; font-size:16px; margin-bottom:12px;">${title}</div>
+      <div class="row">
+        <div class="field" style="min-width:180px;">
+          <label>${accountLabel}</label>
+          <select id="de_${id}_account">
+            <option value="">— None —</option>
+            ${accountOptions}
+          </select>
+        </div>
+        <div class="field"><label>Type</label>${typeToggleHTML(id, type)}</div>
+        <div class="field"><label>Amount</label><input type="number" id="de_${id}_amount" min="0" step="0.01" placeholder="0.00"></div>
+        <div class="field" style="flex:1; min-width:180px;"><label>Notes</label><input type="text" id="de_${id}_notes" placeholder="Optional note"></div>
+      </div>
+      ${extraLinksHTML || ''}
+    </div>`;
+  }
+
+  const labourLinks = `
+    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
+    <div class="link-box">
+      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT</div>
+      <div class="field"><select id="de_labour_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
+    </div>`;
+  const materialLinks = `
+    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
+    <div class="link-box">
+      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT / A SUPPLIER</div>
+      <div class="row" style="margin-bottom:0;">
+        <div class="field"><label>Client's project</label><select id="de_material_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
+        <div class="field"><label>Supplier</label><select id="de_material_link_supplier"><option value="">— None —</option>${supplierOptions}</select></div>
+      </div>
+    </div>`;
+  const supplierLinks = `
+    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
+    <div class="link-box">
+      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT</div>
+      <div class="field"><select id="de_supplier_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
+    </div>`;
 
   document.getElementById('mainContent').innerHTML = `
     <h1 class="page-title">Daily Entry</h1>
-    <div class="entry-form">
-      <div class="row">
-        <div class="field">
-          <label>Section</label>
-          <select onchange="setEntrySection(this.value)">
-            <option value="labour" ${section==='labour'?'selected':''}>Labour</option>
-            <option value="material" ${section==='material'?'selected':''}>Material</option>
-            <option value="supplier" ${section==='supplier'?'selected':''}>Supplier</option>
-            <option value="client" ${section==='client'?'selected':''}>Client</option>
-            <option value="engineer" ${section==='engineer'?'selected':''}>Engineer</option>
-          </select>
-        </div>
-        ${section !== 'engineer' ? `
-        <div class="field">
-          <label>Account</label>
-          <select id="de_account">${accountOptions || '<option value="">No accounts yet — add one from the sidebar</option>'}</select>
-        </div>` : ''}
-        ${section === 'client' ? `
-        <div class="field">
-          <label>Ledger</label>
-          <select id="de_ledger">
-            <option value="client" ${presetSub==='client'?'selected':''}>Client Selavu</option>
-            <option value="project" ${presetSub==='project'?'selected':''}>Engineer Selavu</option>
-          </select>
-        </div>` : ''}
-      </div>
+    <div class="field" style="margin-bottom:20px;">
+      <label>Date (applies to every section below)</label>
+      <input type="date" id="de_date" value="${dateVal || todayStr()}" style="max-width:200px;">
+    </div>
 
-      <div class="row">
-        <div class="field">
-          <label>Type</label>
-          <div class="type-toggle">
-            <button type="button" class="${pendingType==='Credit'?'active credit':''}" onclick="setEntryType('Credit')">Credit</button>
-            <button type="button" class="${pendingType==='Debit'?'active debit':''}" onclick="setEntryType('Debit')">Debit</button>
-          </div>
-        </div>
-        <div class="field"><label>Date</label><input type="date" id="de_date" value="${dateVal || todayStr()}"></div>
-        <div class="field"><label>Amount</label><input type="number" id="de_amount" min="0" step="0.01" placeholder="0.00" value="${escapeHtml(amountVal)}"></div>
-        <div class="field" style="flex:1; min-width:200px;"><label>Notes</label><input type="text" id="de_notes" placeholder="Optional note" value="${escapeHtml(notesVal)}"></div>
-      </div>
+    ${block('client', 'Client', 'Client account', clientDropdownOptions, pendingClientType)}
+    ${block('labour', 'Labour', 'Labour type', labourOptions, pendingLabourType, labourLinks)}
+    ${block('material', 'Material', 'Material type', materialOptions, pendingMaterialType, materialLinks)}
+    ${block('supplier', 'Supplier', 'Supplier', supplierOptions, pendingSupplierType, supplierLinks)}
 
-      ${(section === 'labour' || section === 'material' || section === 'supplier') ? `
-      <p style="font-size:12px; color:var(--muted); margin:-6px 0 14px;">
-        ℹ This will automatically also be recorded in your <strong>Engineer</strong> account
-        (the money is coming out of your own pocket to pay them).
-      </p>
-      <div class="link-box">
-        <div class="link-title">OPTIONAL — ALSO LINK THIS TO A CLIENT'S PROJECT / SUPPLIER</div>
-        <div class="row" style="margin-bottom:0;">
-          <div class="field">
-            <label>Also add to a client's project?</label>
-            <select id="de_link_client">
-              <option value="">— None —</option>
-              ${clientOptions}
-            </select>
-          </div>
-          ${section === 'material' ? `
-          <div class="field">
-            <label>Also add to a supplier's ledger?</label>
-            <select id="de_link_supplier">
-              <option value="">— None —</option>
-              ${supplierOptions}
-            </select>
-          </div>` : ''}
-        </div>
-      </div>` : ''}
-
-      <div class="row" style="margin-top:16px; margin-bottom:0;">
-        <button onclick="saveDailyEntry()">Save entry</button>
+    <div class="entry-form" style="margin-bottom:20px;">
+      <div style="font-family:'Zilla Slab', serif; font-weight:700; font-size:16px; margin-bottom:12px;">Engineer (personal / office expense)</div>
+      <div class="row" style="margin-bottom:0;">
+        <div class="field"><label>Type</label>${typeToggleHTML('engineer', pendingEngineerType)}</div>
+        <div class="field"><label>Amount</label><input type="number" id="de_engineer_amount" min="0" step="0.01" placeholder="0.00"></div>
+        <div class="field" style="flex:1; min-width:200px;"><label>Notes</label><input type="text" id="de_engineer_notes" placeholder="Optional note"></div>
       </div>
     </div>
+
+    <button onclick="saveDailyEntry()" style="font-size:15px; padding:10px 22px;">Save entries</button>
+    <p style="font-size:12px; color:var(--muted); margin-top:10px;">Leave any section blank to skip it — only sections with an amount entered will be saved.</p>
   `;
 }
 
 /* ---------------- Account page (Labour / Material / Supplier / Engineer / Client) ---------------- */
 
 function renderAccountPage(section, accountId, subLedger){
-  if(section === 'client' && !subLedger) subLedger = 'client';
+  if(section === 'client' && !subLedger) subLedger = 'project';
   const totals = totalsFor(section, accountId, subLedger);
-  const tx = txFor(section, accountId, subLedger);
-  const title = section === 'engineer' ? 'Engineer' : accountName(section, accountId);
+  const allTx = txFor(section, accountId, subLedger);
+  const title = section === 'engineer' ? 'Engineer' : (section === 'client' ? clientFlatName(accountId, subLedger) : accountName(section, accountId));
+  const subtitle = section === 'client' ? subLedgerLabel(subLedger) + ' account' : '';
   const showForClient = (section === 'labour' || section === 'material' || section === 'supplier');
   const showSource = (section === 'engineer');
 
+  // Date filter — defaults to today, dropdown of dates that have entries, plus "All"
+  const uniqueDates = [...new Set(allTx.map(t => t.date))].sort().reverse();
+  if(!uniqueDates.includes(dateFilter) && dateFilter !== 'all' && dateFilter !== todayStr()){
+    // keep whatever was chosen even if this page has no entries that day
+  }
+  const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${todayStr()})</option>`
+    + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${d}</option>`).join('')
+    + `<option value="all" ${dateFilter==='all'?'selected':''}>All dates</option>`;
+
   let runBal = 0, rows = '';
-  if(tx.length === 0){
+  let shownCount = 0;
+  if(allTx.length === 0){
     rows = `<tr><td colspan="7"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
   } else {
-    tx.forEach(t => {
+    allTx.forEach(t => {
       runBal += (t.type === 'Credit' ? t.amount : -t.amount);
+      if(dateFilter !== 'all' && t.date !== dateFilter) return;
+      shownCount++;
       const linkedTag = t.auto
         ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
         : (t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
@@ -916,26 +974,23 @@ function renderAccountPage(section, accountId, subLedger){
         <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
       </tr>`;
     });
+    if(shownCount === 0){
+      rows = `<tr><td colspan="7"><div class="empty-state">No entries on this date. Try "All dates", or log one from the Daily Entry page.</div></td></tr>`;
+    }
   }
-
-  const subTabs = section === 'client' ? `
-    <div class="subledger-tabs no-print">
-      <button class="${subLedger==='client'?'active':''}" onclick="goTo('client:${accountId}:client')">Client Selavu</button>
-      <button class="${subLedger==='project'?'active':''}" onclick="goTo('client:${accountId}:project')">Engineer Selavu</button>
-    </div>` : '';
 
   const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
 
   document.getElementById('mainContent').innerHTML = `
     <div class="page-header">
-      <h1>${escapeHtml(title)}${section==='client' ? ' — ' + subLedgerLabel(subLedger) : ''}</h1>
+      <h1>${escapeHtml(title)}</h1>
     </div>
+    ${subtitle ? `<div style="font-size:12px; color:var(--muted); margin-top:-14px; margin-bottom:16px;">${subtitle}</div>` : ''}
     <div class="page-stats">
       <div class="page-stat credit"><div class="label">TOTAL CREDIT</div><div class="value">${fmt(totals.credit)}</div></div>
       <div class="page-stat debit"><div class="label">TOTAL DEBIT</div><div class="value">${fmt(totals.debit)}</div></div>
       <div class="page-stat balance"><div class="label">${section==='engineer' ? 'NET BALANCE' : (totals.balance>=0 ? 'IN CREDIT' : 'BALANCE DUE')}</div><div class="value ${totals.balance>=0?'pos':'neg'}">${fmt(totals.balance)}</div></div>
     </div>
-    ${subTabs}
     <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
       <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:480px;">
         <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">CREDIT VS DEBIT</div>
@@ -946,6 +1001,10 @@ function renderAccountPage(section, accountId, subLedger){
         <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">WHERE THE MONEY WENT</div>
         ${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 130)}
       </div>` : ''}
+    </div>
+    <div class="no-print" style="margin-bottom:14px;">
+      <label style="font-size:11px; color:var(--muted); letter-spacing:0.2px; margin-right:8px;">SHOW ENTRIES FOR</label>
+      <select onchange="setDateFilter(this.value)">${dateOptions}</select>
     </div>
     <div class="summary-actions no-print">
       <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
@@ -1076,12 +1135,19 @@ function renderAllEntries(){
   // Show only what you actually typed (one row per real transaction) —
   // the auto-created linked copies still live on their own account pages,
   // but here they'd just repeat the same event, so we list where they went instead.
-  const primaryOnly = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+  const allPrimary = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+  const uniqueDates = [...new Set(allPrimary.map(t => t.date))].sort().reverse();
+  const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${todayStr()})</option>`
+    + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${d}</option>`).join('')
+    + `<option value="all" ${dateFilter==='all'?'selected':''}>All dates</option>`;
+
+  const shown = dateFilter === 'all' ? allPrimary : allPrimary.filter(t => t.date === dateFilter);
+
   let rows = '';
-  if(primaryOnly.length === 0){
-    rows = `<tr><td colspan="7"><div class="empty-state">No entries logged yet.</div></td></tr>`;
+  if(shown.length === 0){
+    rows = `<tr><td colspan="7"><div class="empty-state">No entries ${dateFilter==='all' ? 'logged yet' : 'on this date'}. ${dateFilter!=='all' ? 'Try "All dates", or log' : 'Log'} one from the Daily Entry page.</div></td></tr>`;
   } else {
-    primaryOnly.slice().reverse().forEach(t => {
+    shown.slice().reverse().forEach(t => {
       const label = accountLabel(t.section, t.accountId, t.subLedger);
       const links = siblingLabelsFor(t);
       const linksCell = links.length ? escapeHtml(links.join(', ')) : '—';
@@ -1103,7 +1169,10 @@ function renderAllEntries(){
       <button class="ghost" onclick="exportCSV()">Export all (.csv)</button>
       <button class="ghost" onclick="printReport('all')">🖨 Print full ledger</button>
     </div>
-    <table class="ledger">
+    <div class="no-print" style="margin-bottom:14px;">
+      <label style="font-size:11px; color:var(--muted); letter-spacing:0.2px; margin-right:8px;">SHOW ENTRIES FOR</label>
+      <select onchange="setDateFilter(this.value)">${dateOptions}</select>
+    </div>    <table class="ledger">
       <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
