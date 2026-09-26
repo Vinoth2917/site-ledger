@@ -120,7 +120,7 @@
   .add-account-row input{ flex:1; font-size:12.5px; padding:6px 8px; min-width:0; }
   .add-account-row button{ padding:6px 9px; font-size:12px; }
 
-  main.content{ flex:1; padding:28px 32px 60px; max-width:1000px; }
+  main.content{ flex:1; width:100%; min-width:0; padding:28px 32px 60px; max-width:1400px; overflow-x:auto; }
 
   /* ---------- Form controls ---------- */
   input, select{
@@ -135,6 +135,8 @@
     background:var(--accent); color:#fff; cursor:pointer; letter-spacing:0.2px;
   }
   button:hover{ background:var(--accent-dark); border-color:var(--accent-dark); }
+  button:disabled{ opacity:.6; cursor:not-allowed; }
+  .period-note{ font-size:11.5px; color:var(--muted); margin:-10px 0 18px; line-height:1.5; }
   button.ghost{ background:transparent; color:var(--ink); border:1px solid var(--line-strong); }
   button.ghost:hover{ background:#EAE7DC; }
   button.small{ padding:5px 9px; font-size:12px; }
@@ -185,7 +187,7 @@
   .link-box .link-title{ font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:8px; letter-spacing:0.2px; }
 
   /* ---------- Ledger table ---------- */
-  table.ledger{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.ledger{ width:100%; min-width:720px; border-collapse:collapse; font-size:13.5px; }
   table.ledger thead th{ text-align:left; font-size:10.5px; letter-spacing:0.3px; color:var(--muted); border-bottom:1px solid var(--ink); padding:6px 8px; }
   table.ledger tbody td{ padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   table.ledger tbody tr:hover{ background:#EFEDE4; }
@@ -302,7 +304,6 @@ let auth = null;
 let db = null;
 let currentUser = null;
 let stopLedgerListener = null;
-let saveQueue = Promise.resolve();
 
 if(FIREBASE_CONFIGURED){
   firebase.initializeApp(firebaseConfig);
@@ -460,35 +461,157 @@ let pendingLabourType = 'Debit';
 let pendingMaterialType = 'Debit';
 let pendingSupplierType = 'Debit';
 let pendingEngineerType = 'Debit';
+let lastSyncedState = null;
+const pendingSavesByUid = Object.create(null);
+let saveQueue = Promise.resolve();
+let entrySaveInProgress = false;
 
 const SECTION_LABELS = { labour:'Labour', material:'Material', supplier:'Supplier', client:'Client', engineer:'Engineer' };
 
 /* ---------------- Persistence (Firebase) ---------------- */
 
-function applyLedgerSnapshot(data){
-  state = {
-    accounts: data.accounts || defaultAccounts(),
-    transactions: data.transactions || [],
-    profile: data.profile || defaultProfile()
+function cloneState(value){
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sameJson(a, b){
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function normalizeStateShape(data){
+  const base = data && typeof data === 'object' ? data : {};
+  const accounts = base.accounts && typeof base.accounts === 'object' ? base.accounts : {};
+  const normalizedAccounts = {};
+  ['labour','material','supplier','client'].forEach(section => {
+    normalizedAccounts[section] = Array.isArray(accounts[section]) ? accounts[section].filter(a => a && typeof a.id === 'string' && typeof a.name === 'string').map(a => ({id:a.id, name:a.name})) : [];
+  });
+  const transactions = Array.isArray(base.transactions) ? base.transactions.filter(t => t && typeof t === 'object').map(t => ({
+    id: typeof t.id === 'string' ? t.id : uid('t'),
+    date: typeof t.date === 'string' ? t.date : todayStr(),
+    section: t.section,
+    accountId: t.section === 'engineer' ? null : (typeof t.accountId === 'string' ? t.accountId : null),
+    subLedger: t.section === 'client' ? t.subLedger : null,
+    type: t.type === 'Credit' ? 'Credit' : 'Debit',
+    amount: Number.isFinite(t.amount) ? t.amount : Number(t.amount),
+    notes: typeof t.notes === 'string' ? t.notes : '',
+    linkGroupId: typeof t.linkGroupId === 'string' && t.linkGroupId ? t.linkGroupId : uid('lg'),
+    auto: t.auto === true,
+    createdAt: Number.isFinite(t.createdAt) ? t.createdAt : null
+  })) : [];
+  return {
+    accounts: {
+      labour: normalizedAccounts.labour,
+      material: normalizedAccounts.material,
+      supplier: normalizedAccounts.supplier,
+      client: normalizedAccounts.client
+    },
+    transactions,
+    profile: base.profile && typeof base.profile === 'object' ? {
+      name: typeof base.profile.name === 'string' ? base.profile.name : '',
+      business: typeof base.profile.business === 'string' ? base.profile.business : '',
+      phone: typeof base.profile.phone === 'string' ? base.profile.phone : '',
+      address: typeof base.profile.address === 'string' ? base.profile.address : ''
+    } : defaultProfile()
   };
+}
+
+function applyLedgerSnapshot(data){
+  state = normalizeStateShape(data);
+  lastSyncedState = cloneState(state);
   loaded = true;
   setSyncStatus('synced');
   render();
 }
 
+function removedAccountIdsBySection(base, local){
+  const removed = { labour:new Set(), material:new Set(), supplier:new Set(), client:new Set() };
+  ['labour','material','supplier','client'].forEach(section => {
+    const baseIds = new Set((base.accounts?.[section] || []).map(a => a.id));
+    const localIds = new Set((local.accounts?.[section] || []).map(a => a.id));
+    baseIds.forEach(id => { if(!localIds.has(id)) removed[section].add(id); });
+  });
+  return removed;
+}
+
+function mergeLocalChanges(base, local, remote){
+  const merged = cloneState(remote);
+  const removedAccounts = removedAccountIdsBySection(base, local);
+  const ownedDeletedGroupIds = new Set();
+  (base.transactions || []).forEach(t => {
+    const accountDeleted = t && t.section !== 'engineer' && removedAccounts[t.section]?.has(t.accountId);
+    if(accountDeleted && t.auto !== true && t.linkGroupId) ownedDeletedGroupIds.add(t.linkGroupId);
+  });
+
+  // Account changes are merged by account ID. Local deletions win for that account.
+  ['labour','material','supplier','client'].forEach(section => {
+    const baseMap = new Map((base.accounts?.[section] || []).map(a => [a.id, a]));
+    const localMap = new Map((local.accounts?.[section] || []).map(a => [a.id, a]));
+    const remoteList = merged.accounts[section] || [];
+    const remoteMap = new Map(remoteList.map(a => [a.id, a]));
+
+    for(const [id] of baseMap){
+      if(!localMap.has(id)) remoteMap.delete(id);
+    }
+    for(const [id, value] of localMap){
+      const baseValue = baseMap.get(id);
+      if(!baseValue || !sameJson(baseValue, value)) remoteMap.set(id, value);
+    }
+    merged.accounts[section] = Array.from(remoteMap.values());
+  });
+
+  // Transaction changes are merged by transaction ID. Local deletions win,
+  // local edits/additions win, and unrelated remote transactions are preserved.
+  const baseMap = new Map((base.transactions || []).map(t => [t.id, t]));
+  const localMap = new Map((local.transactions || []).map(t => [t.id, t]));
+  const removedTxIds = new Set();
+  for(const [id] of baseMap){
+    if(!localMap.has(id)) removedTxIds.add(id);
+  }
+
+  const accountWasDeleted = t => {
+    if(!t || t.section === 'engineer') return false;
+    return removedAccounts[t.section]?.has(t.accountId) || false;
+  };
+
+  let txs = (merged.transactions || []).filter(t => !removedTxIds.has(t.id) && !accountWasDeleted(t) && !(t.linkGroupId && ownedDeletedGroupIds.has(t.linkGroupId)));
+  const txIndex = new Map(txs.map(t => [t.id, t]));
+  for(const [id, value] of localMap){
+    const baseValue = baseMap.get(id);
+    if(!baseValue || !sameJson(baseValue, value)) txIndex.set(id, value);
+  }
+  merged.transactions = Array.from(txIndex.values());
+
+  // Profile is a single editable object; local changes win only when the local
+  // copy actually differs from the last synced copy.
+  if(!sameJson(base.profile || defaultProfile(), local.profile || defaultProfile())){
+    merged.profile = cloneState(local.profile || defaultProfile());
+  }
+
+  return merged;
+}
+
 function loadState(){
   loaded = false;
+  lastSyncedState = null;
   if(!currentUser || !db) return;
   if(stopLedgerListener) stopLedgerListener();
 
-  const docRef = db.collection('siteLedgers').doc(currentUser.uid);
-  stopLedgerListener = docRef.onSnapshot(async snap => {
+  const userUid = currentUser.uid;
+  const docRef = db.collection('siteLedgers').doc(userUid);
+  stopLedgerListener = docRef.onSnapshot(snap => {
     try{
+      // While this user has local writes in flight, ignore snapshots temporarily.
+      // The Firestore transaction in saveState() merges remote changes into the
+      // local edits and then publishes one coherent state back to the UI.
+      if(pendingSavesByUid[userUid] > 0) return;
       if(!snap.exists){
         const freshState = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
         state = freshState;
-        await docRef.set(freshState);
-        applyLedgerSnapshot(freshState);
+        lastSyncedState = cloneState(freshState);
+        loaded = true;
+        snap.ref.set(freshState).catch(e => console.error('Initial state save failed:', e));
+        setSyncStatus('synced');
+        render();
         return;
       }
       applyLedgerSnapshot(snap.data());
@@ -501,6 +624,7 @@ function loadState(){
     setSyncStatus('error');
     if(!loaded){
       state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
+      lastSyncedState = cloneState(state);
       loaded = true;
       render();
     }
@@ -508,31 +632,76 @@ function loadState(){
 }
 
 function saveState(){
-  if(!currentUser || !db) return Promise.resolve();
+  if(!currentUser || !db) return Promise.resolve(true);
 
-  // Capture the signed-in user and document reference immediately. This avoids
-  // a queued write for User A ever being sent to User B after a sign-out/sign-in.
   const userUid = currentUser.uid;
-  const docRef = db.collection('siteLedgers').doc(userUid);
-  // Snapshot the state at call time and queue writes so rapid consecutive edits
-  // cannot overtake each other. Firestore's onSnapshot listener provides live
-  // updates when the same account changes on another device.
-  const stateToSave = JSON.parse(JSON.stringify(state));
-  saveQueue = saveQueue.then(async () => {
+  const baseForSave = cloneState(lastSyncedState || state);
+  const localForSave = cloneState(state);
+  pendingSavesByUid[userUid] = (pendingSavesByUid[userUid] || 0) + 1;
+
+  const task = saveQueue.then(async () => {
     setSyncStatus('connecting');
-    await docRef.set(stateToSave);
-    setSyncStatus('synced');
-  }).catch(e => {
-    console.error('Save failed', e);
-    setSyncStatus('error');
+    const docRef = db.collection('siteLedgers').doc(userUid);
+    try{
+      let merged;
+      if(navigator.onLine === false){
+        merged = localForSave;
+        await docRef.set(merged);
+        if(currentUser && currentUser.uid === userUid) setSyncStatus('offline');
+      }else{
+        merged = await db.runTransaction(async transaction => {
+          const snap = await transaction.get(docRef);
+          const remote = snap.exists ? normalizeStateShape(snap.data()) : { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
+          const next = mergeLocalChanges(baseForSave, localForSave, remote);
+          transaction.set(docRef, next);
+          return next;
+        });
+      }
+
+      // Only update the visible UI if this is still the same signed-in user.
+      // The transaction result contains any remote edits that arrived concurrently.
+      if(currentUser && currentUser.uid === userUid && pendingSavesByUid[userUid] === 1){
+        state = cloneState(merged);
+        lastSyncedState = cloneState(merged);
+        render();
+      } else if(currentUser && currentUser.uid === userUid){
+        lastSyncedState = cloneState(merged);
+      }
+      return true;
+    }catch(e){
+      console.error('Save failed', e);
+      const canQueueOffline = e && (e.code === 'unavailable' || navigator.onLine === false);
+      if(canQueueOffline){
+        try{
+          await docRef.set(localForSave);
+          if(currentUser && currentUser.uid === userUid){
+            lastSyncedState = cloneState(localForSave);
+            setSyncStatus('offline');
+          }
+          return true;
+        }catch(fallbackError){
+          console.error('Offline save fallback failed', fallbackError);
+        }
+      }
+      if(currentUser && currentUser.uid === userUid) setSyncStatus('error');
+      return false;
+    }
+  }).finally(() => {
+    pendingSavesByUid[userUid] = Math.max(0, (pendingSavesByUid[userUid] || 1) - 1);
+    if(currentUser && currentUser.uid === userUid && pendingSavesByUid[userUid] === 0){
+      setSyncStatus(navigator.onLine === false ? 'offline' : 'synced');
+    }
   });
-  return saveQueue;
+
+  saveQueue = task.then(() => undefined, () => undefined);
+  return task;
 }
 
 function setSyncStatus(mode){
   const el = document.getElementById('syncStatus');
   if(!el) return;
   if(mode === 'synced'){ el.textContent = '● synced to your Google account'; el.style.color = '#7FC4B3'; }
+  else if(mode === 'offline'){ el.textContent = '● saved locally — will sync when online'; el.style.color = '#D6B56D'; }
   else if(mode === 'error'){ el.textContent = '● sync error — check your internet connection'; el.style.color = '#E39C8D'; }
   else { el.textContent = '○ connecting…'; el.style.color = '#B9B4A2'; }
 }
@@ -587,7 +756,7 @@ function siblingLabelsFor(tx){
     .map(o => accountLabel(o.section, o.accountId, o.subLedger));
 }
 
-function addAccount(section, name){
+async function addAccount(section, name){
   name = name.trim();
   if(!name) return;
   const list = state.accounts[section];
@@ -597,26 +766,36 @@ function addAccount(section, name){
   }
   const acc = { id: uid('a'), name };
   list.push(acc);
-  saveState();
+  const ok = await saveState();
+  if(!ok){
+    state.accounts[section] = state.accounts[section].filter(a => a.id !== acc.id);
+    alert('The new account could not be synchronized to Firebase. Please check your connection and try again.');
+    render();
+    return;
+  }
   activeView = section + ':' + acc.id + (section === 'client' ? ':client' : ':');
   render();
 }
 
-function deleteAccount(section, accountId){
+async function deleteAccount(section, accountId){
   const name = accountName(section, accountId);
   const accountTx = state.transactions.filter(t => t.section === section && t.accountId === accountId);
-  const linkedGroupIds = new Set(accountTx.filter(t => t.linkGroupId).map(t => t.linkGroupId));
-  const linkedTxCount = state.transactions.filter(t => t.linkGroupId && linkedGroupIds.has(t.linkGroupId)).length;
-  const extraLinked = Math.max(0, linkedTxCount - accountTx.length);
-  const message = extraLinked > 0
-    ? `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis will also delete ${extraLinked} linked entrie(s) in other ledgers so no orphaned linked records remain.\n\nThis can't be undone.`
-    : `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis can't be undone.`;
+  // Only a transaction that is the primary (typed) entry owns its linked group.
+  // If this account only contains an auto-created mirror, remove that mirror
+  // but preserve the source transaction and mirrors in other ledgers.
+  const ownedGroupIds = new Set(accountTx.filter(t => t.auto !== true && t.linkGroupId).map(t => t.linkGroupId));
+  const mirrorOnlyCount = accountTx.filter(t => t.auto === true).length;
+  const message = mirrorOnlyCount > 0 && ownedGroupIds.size === 0
+    ? `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThese are linked copies, so the original transactions in other ledgers will be kept.\n\nThis can't be undone.`
+    : ownedGroupIds.size > 0
+      ? `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\n${ownedGroupIds.size} linked transaction group(s) will also be removed because this account contains the original entries.\nAny mirrored entries that belong to other source transactions will be kept.\n\nThis can't be undone.`
+      : `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis can't be undone.`;
   if(!confirm(message)) return;
 
   state.accounts[section] = state.accounts[section].filter(a => a.id !== accountId);
   state.transactions = state.transactions.filter(t => {
     if(t.section === section && t.accountId === accountId) return false;
-    if(t.linkGroupId && linkedGroupIds.has(t.linkGroupId)) return false;
+    if(t.linkGroupId && ownedGroupIds.has(t.linkGroupId)) return false;
     return true;
   });
   activeView = 'summary';
@@ -629,14 +808,29 @@ function deleteAccount(section, accountId){
 function txFor(section, accountId, subLedger){
   return state.transactions
     .filter(t => t.section === section && (section === 'engineer' || t.accountId === accountId) && (section !== 'client' || t.subLedger === subLedger))
-    .sort((a,b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+    .sort((a,b) => {
+      if(a.date !== b.date) return a.date > b.date ? 1 : -1;
+      if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt){
+        return a.createdAt - b.createdAt;
+      }
+      return 0; // preserve insertion order for same-day legacy/identical timestamps
+    });
 }
-function totalsFor(section, accountId, subLedger){
-  const tx = txFor(section, accountId, subLedger);
+
+function totalsFromTransactions(tx){
   let credit = 0, debit = 0;
   tx.forEach(t => { if(t.type === 'Credit') credit += t.amount; else debit += t.amount; });
   return { credit, debit, balance: credit - debit };
 }
+
+function totalsFor(section, accountId, subLedger){
+  return totalsFromTransactions(txFor(section, accountId, subLedger));
+}
+
+function filteredTransactions(tx, filter){
+  return filter === 'all' ? tx.slice() : tx.filter(t => t.date === filter);
+}
+
 function overallTotals(){
   // Only count the entry you actually typed (not the auto-created linked
   // copies) so one real purchase isn't counted multiple times in the
@@ -667,105 +861,136 @@ function sectionGrandTotal(section){
   return { credit, debit, balance: credit - debit };
 }
 
-function saveDailyEntry(){
-  const date = document.getElementById('de_date').value || todayStr();
-  let savedCount = 0;
+async function saveDailyEntry(){
+  if(entrySaveInProgress) return;
+  entrySaveInProgress = true;
+  const saveBtn = document.getElementById('saveEntriesBtn');
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
-  // The client picked at the top of the page (if any) is the shared context for
-  // this whole save — any Labour/Material/Supplier entries below automatically
-  // attribute their cost to that client's project. We only need the client's
-  // id here, not which of their two ledgers was chosen for the direct entry.
-  const clientSel = document.getElementById('de_client_account').value;
-  const sharedClientId = clientSel ? clientSel.split(':')[0] : '';
+  try{
+    const date = document.getElementById('de_date').value || todayStr();
+    let savedCount = 0;
+    let createdAt = Date.now();
 
-  // --- CLIENT block (direct entry into whichever of the two ledgers was picked) ---
-  const clientAmt = parseFloat(document.getElementById('de_client_amount').value);
-  if(clientSel && clientAmt > 0){
-    const [cid, csub] = clientSel.split(':');
-    state.transactions.push({
-      id: uid('t'), date, section:'client', accountId:cid, subLedger:csub,
-      type: pendingClientType, amount: clientAmt, notes: document.getElementById('de_client_notes').value.trim(),
-      linkGroupId: uid('lg'), auto:false
-    });
-    savedCount++;
-  }
+    // The client picked at the top of the page (if any) is the shared context for
+    // this whole save — any Labour/Material/Supplier entries below automatically
+    // attribute their cost to that client's project. We only need the client's
+    // id here, not which of their two ledgers was chosen for the direct entry.
+    const clientSel = document.getElementById('de_client_account').value;
+    const sharedClientId = clientSel ? clientSel.split(':')[0] : '';
 
-  // --- LABOUR block ---
-  const labourAcc = document.getElementById('de_labour_account').value;
-  const labourAmt = parseFloat(document.getElementById('de_labour_amount').value);
-  if(labourAcc && labourAmt > 0){
-    const lg = uid('lg');
-    const notes = document.getElementById('de_labour_notes').value.trim();
-    state.transactions.push({ id: uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false });
-    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes: notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
-    if(sharedClientId){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
+    // --- CLIENT block (direct entry into whichever of the two ledgers was picked) ---
+    const clientAmt = parseFloat(document.getElementById('de_client_amount').value);
+    if(clientSel && clientAmt > 0){
+      const [cid, csub] = clientSel.split(':');
+      state.transactions.push({
+        id: uid('t'), date, section:'client', accountId:cid, subLedger:csub,
+        type: pendingClientType, amount: clientAmt, notes: document.getElementById('de_client_notes').value.trim(),
+        linkGroupId: uid('lg'), auto:false, createdAt: createdAt++
+      });
+      savedCount++;
     }
-    savedCount++;
-  }
 
-  // --- MATERIAL block ---
-  const materialAcc = document.getElementById('de_material_account').value;
-  const materialAmt = parseFloat(document.getElementById('de_material_amount').value);
-  if(materialAcc && materialAmt > 0){
-    const lg = uid('lg');
-    const notes = document.getElementById('de_material_notes').value.trim();
-    state.transactions.push({ id: uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false });
-    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
-    if(sharedClientId){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+    // --- LABOUR block ---
+    const labourAcc = document.getElementById('de_labour_account').value;
+    const labourAmt = parseFloat(document.getElementById('de_labour_amount').value);
+    if(labourAcc && labourAmt > 0){
+      const lg = uid('lg');
+      const notes = document.getElementById('de_labour_notes').value.trim();
+      state.transactions.push({ id: uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
+      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes: notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      if(sharedClientId){
+        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      }
+      savedCount++;
     }
-    const linkSupplier = document.getElementById('de_material_link_supplier').value;
-    if(linkSupplier){
-      state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:linkSupplier, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+
+    // --- MATERIAL block ---
+    const materialAcc = document.getElementById('de_material_account').value;
+    const materialAmt = parseFloat(document.getElementById('de_material_amount').value);
+    if(materialAcc && materialAmt > 0){
+      const lg = uid('lg');
+      const notes = document.getElementById('de_material_notes').value.trim();
+      state.transactions.push({ id: uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
+      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      if(sharedClientId){
+        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      }
+      const linkSupplier = document.getElementById('de_material_link_supplier').value;
+      if(linkSupplier){
+        state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:linkSupplier, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      }
+      savedCount++;
     }
-    savedCount++;
-  }
 
-  // --- SUPPLIER block ---
-  const supplierAcc = document.getElementById('de_supplier_account').value;
-  const supplierAmt = parseFloat(document.getElementById('de_supplier_amount').value);
-  if(supplierAcc && supplierAmt > 0){
-    const lg = uid('lg');
-    const notes = document.getElementById('de_supplier_notes').value.trim();
-    state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false });
-    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes: notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
-    if(sharedClientId){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
+    // --- SUPPLIER block ---
+    const supplierAcc = document.getElementById('de_supplier_account').value;
+    const supplierAmt = parseFloat(document.getElementById('de_supplier_amount').value);
+    if(supplierAcc && supplierAmt > 0){
+      const lg = uid('lg');
+      const notes = document.getElementById('de_supplier_notes').value.trim();
+      state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
+      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes: notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      if(sharedClientId){
+        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      }
+      savedCount++;
     }
-    savedCount++;
-  }
 
-  // --- ENGINEER block (direct personal/office expense, not tied to a project) ---
-  const engineerAmt = parseFloat(document.getElementById('de_engineer_amount').value);
-  if(engineerAmt > 0){
-    state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingEngineerType, amount:engineerAmt, notes: document.getElementById('de_engineer_notes').value.trim(), linkGroupId: uid('lg'), auto:false });
-    savedCount++;
-  }
+    // --- ENGINEER block (direct personal/office expense, not tied to a project) ---
+    const engineerAmt = parseFloat(document.getElementById('de_engineer_amount').value);
+    if(engineerAmt > 0){
+      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingEngineerType, amount:engineerAmt, notes: document.getElementById('de_engineer_notes').value.trim(), linkGroupId: uid('lg'), auto:false, createdAt: createdAt++ });
+      savedCount++;
+    }
 
-  if(savedCount === 0){ alert('Enter an amount in at least one section.'); return; }
-  saveState();
-  presetAccount = null;
-  alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.' + (sharedClientId ? ' Linked to ' + accountName('client', sharedClientId) + "'s project." : ''));
-  render();
+    if(savedCount === 0){
+      alert('Enter an amount in at least one section.');
+      return;
+    }
+
+    const ok = await saveState();
+    if(!ok){
+      alert('The entries were created locally, but could not be saved to Firebase. Check your internet connection and try again.');
+      return;
+    }
+
+    presetAccount = null;
+    alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.' + (sharedClientId ? ' Linked to ' + accountName('client', sharedClientId) + "'s project." : ''));
+    render();
+  } finally {
+    entrySaveInProgress = false;
+    const btn = document.getElementById('saveEntriesBtn');
+    if(btn){ btn.disabled = false; btn.textContent = 'Save entries'; }
+  }
 }
 
-function deleteTransaction(id){
+async function deleteTransaction(id){
   const tx = state.transactions.find(t => t.id === id);
   if(!tx) return;
-  const siblings = state.transactions.filter(t => t.linkGroupId === tx.linkGroupId && t.id !== tx.id);
-  if(siblings.length > 0){
+  const siblings = state.transactions.filter(t => t.linkGroupId && t.linkGroupId === tx.linkGroupId && t.id !== tx.id);
+
+  if(!tx.auto && siblings.length > 0){
     const names = siblings.map(s => accountLabel(s.section, s.accountId, s.subLedger)).join(', ');
-    const deleteAll = confirm(`This entry is also linked to: ${names}.\n\nOK = delete it everywhere it's linked\nCancel = delete only this one page's entry`);
+    const ok = confirm(`This is the original transaction and it is linked to: ${names}.\n\nDeleting the original will also remove its automatic mirror entries.\n\nContinue?`);
+    if(!ok) return;
+    // Never leave automatic mirrors without their source transaction.
+    state.transactions = state.transactions.filter(t => t.linkGroupId !== tx.linkGroupId);
+  }else if(tx.auto && siblings.length > 0){
+    const deleteAll = confirm(`This linked copy is also recorded in: ${siblings.map(s => accountLabel(s.section, s.accountId, s.subLedger)).join(', ')}.\n\nOK = delete the original transaction and every linked copy\nCancel = remove only this linked copy`);
     if(deleteAll){
       state.transactions = state.transactions.filter(t => t.linkGroupId !== tx.linkGroupId);
-    } else {
+    }else{
       state.transactions = state.transactions.filter(t => t.id !== tx.id);
     }
-  } else {
+  }else{
+    const ok = confirm('Delete this transaction? This cannot be undone.');
+    if(!ok) return;
     state.transactions = state.transactions.filter(t => t.id !== tx.id);
   }
-  saveState();
+
+  const ok = await saveState();
+  if(!ok) alert('The deletion was made on this screen but could not be synchronized to Firebase. Please check your connection and try again.');
   render();
 }
 
@@ -964,7 +1189,7 @@ function renderDailyEntry(){
       </div>
     </div>
 
-    <button onclick="saveDailyEntry()" style="font-size:15px; padding:10px 22px;">Save entries</button>
+    <button id="saveEntriesBtn" onclick="saveDailyEntry()" style="font-size:15px; padding:10px 22px;">Save entries</button>
     <p style="font-size:12px; color:var(--muted); margin-top:10px;">Leave any section blank to skip it — only sections with an amount entered will be saved.</p>
   `;
 }
@@ -973,18 +1198,18 @@ function renderDailyEntry(){
 
 function renderAccountPage(section, accountId, subLedger){
   if(section === 'client' && !subLedger) subLedger = 'project';
-  const totals = totalsFor(section, accountId, subLedger);
   const allTx = txFor(section, accountId, subLedger);
+  const visibleTx = filteredTransactions(allTx, dateFilter);
+  const allTotals = totalsFromTransactions(allTx);
+  const displayTotals = totalsFromTransactions(visibleTx);
   const title = section === 'engineer' ? 'Engineer' : (section === 'client' ? clientFlatName(accountId, subLedger) : accountName(section, accountId));
   const subtitle = section === 'client' ? subLedgerLabel(subLedger) + ' account' : '';
   const showForClient = (section === 'labour' || section === 'material' || section === 'supplier');
   const showSource = (section === 'engineer');
+  const isFiltered = dateFilter !== 'all';
 
   // Date filter — defaults to today, dropdown of dates that have entries, plus "All"
   const uniqueDates = [...new Set(allTx.map(t => t.date))].sort().reverse();
-  if(!uniqueDates.includes(dateFilter) && dateFilter !== 'all' && dateFilter !== todayStr()){
-    // keep whatever was chosen even if this page has no entries that day
-  }
   const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${todayStr()})</option>`
     + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${d}</option>`).join('')
     + `<option value="all" ${dateFilter==='all'?'selected':''}>All dates</option>`;
@@ -994,9 +1219,8 @@ function renderAccountPage(section, accountId, subLedger){
   if(allTx.length === 0){
     rows = `<tr><td colspan="7"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
   } else {
-    allTx.forEach(t => {
+    visibleTx.forEach(t => {
       runBal += (t.type === 'Credit' ? t.amount : -t.amount);
-      if(dateFilter !== 'all' && t.date !== dateFilter) return;
       shownCount++;
       const linkedTag = t.auto
         ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
@@ -1020,6 +1244,10 @@ function renderAccountPage(section, accountId, subLedger){
   }
 
   const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
+  const balanceLabel = section === 'client' ? 'NET POSITION' : 'NET BALANCE';
+  const periodNote = isFiltered && allTx.length > visibleTx.length
+    ? `Showing ${dateFilter === todayStr() ? 'today' : dateFilter}. Period totals and running balance are based only on visible entries. Current all-date balance: <strong>${fmt(allTotals.balance)}</strong>.`
+    : (isFiltered ? `Showing ${dateFilter === todayStr() ? 'today' : dateFilter}.` : 'Showing the complete ledger history.');
 
   document.getElementById('mainContent').innerHTML = `
     <div class="page-header">
@@ -1027,19 +1255,20 @@ function renderAccountPage(section, accountId, subLedger){
     </div>
     ${subtitle ? `<div style="font-size:12px; color:var(--muted); margin-top:-14px; margin-bottom:16px;">${subtitle}</div>` : ''}
     <div class="page-stats">
-      <div class="page-stat credit"><div class="label">TOTAL CREDIT</div><div class="value">${fmt(totals.credit)}</div></div>
-      <div class="page-stat debit"><div class="label">TOTAL DEBIT</div><div class="value">${fmt(totals.debit)}</div></div>
-      <div class="page-stat balance"><div class="label">${section==='engineer' ? 'NET BALANCE' : (totals.balance>=0 ? 'IN CREDIT' : 'BALANCE DUE')}</div><div class="value ${totals.balance>=0?'pos':'neg'}">${fmt(totals.balance)}</div></div>
+      <div class="page-stat credit"><div class="label">${isFiltered ? 'PERIOD CREDIT' : 'TOTAL CREDIT'}</div><div class="value">${fmt(displayTotals.credit)}</div></div>
+      <div class="page-stat debit"><div class="label">${isFiltered ? 'PERIOD DEBIT' : 'TOTAL DEBIT'}</div><div class="value">${fmt(displayTotals.debit)}</div></div>
+      <div class="page-stat balance"><div class="label">${isFiltered ? 'PERIOD NET' : balanceLabel}</div><div class="value ${displayTotals.balance>=0?'pos':'neg'}">${fmt(displayTotals.balance)}</div></div>
     </div>
+    <div class="period-note">${periodNote}</div>
     <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
       <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:480px;">
-        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">CREDIT VS DEBIT</div>
-        ${creditDebitChart(totals.credit, totals.debit)}
+        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">${isFiltered ? 'PERIOD CREDIT VS DEBIT' : 'CREDIT VS DEBIT'}</div>
+        ${creditDebitChart(displayTotals.credit, displayTotals.debit)}
       </div>
       ${(section === 'engineer' || (section === 'client' && subLedger === 'project')) ? `
       <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:420px;">
         <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">WHERE THE MONEY WENT</div>
-        ${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 130)}
+        ${multiSliceChart((dateFilter === 'all' ? categoryBreakdownFor(section, accountId, subLedger) : categoryBreakdownForFiltered(section, accountId, subLedger, dateFilter)), 130)}
       </div>` : ''}
     </div>
     <div class="no-print" style="margin-bottom:14px;">
@@ -1048,15 +1277,25 @@ function renderAccountPage(section, accountId, subLedger){
     </div>
     <div class="summary-actions no-print">
       <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
-      <button class="ghost" onclick="exportAccountCSV('${section}','${accountId||''}','${subLedger||''}')">Export (.csv)</button>
-      <button class="ghost" onclick="printAccountReport('${section}','${accountId||''}','${subLedger||''}')">🖨 Print</button>
+      <button class="ghost" onclick="exportAccountExcel('${section}','${accountId||''}','${subLedger||''}')">Export Excel (.xlsx)</button>
+      <button class="ghost" onclick="printAccountReport('${section}','${accountId||''}','${subLedger||''}')">Export PDF</button>
       ${section !== 'engineer' ? `<button class="ghost" onclick="deleteAccount('${section}','${accountId}')" style="color:var(--debit); border-color:var(--debit);">Delete this ${SECTION_LABELS[section].toLowerCase()}</button>` : ''}
     </div>
-    <table class="ledger">
-      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th>${extraHeader}<th>Notes</th><th class="num">Running balance</th><th></th></tr></thead>
+    <div class="table-wrap"><table class="ledger">
+      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th>${extraHeader}<th>Notes</th><th class="num">${isFiltered ? 'Running period balance' : 'Running balance'}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   `;
+}
+
+function categoryBreakdownForFiltered(section, accountId, subLedger, filter){
+  const tx = filteredTransactions(txFor(section, accountId, subLedger), filter).filter(t => t.type === 'Debit');
+  const map = {};
+  tx.forEach(t => {
+    const label = t.auto ? (primarySiblingLabelFor(t) || 'Other') : 'Direct entry (not linked)';
+    map[label] = (map[label] || 0) + t.amount;
+  });
+  return map;
 }
 
 function jumpToEntry(section, accountId, subLedger){
@@ -1126,9 +1365,8 @@ function renderSummary(){
   document.getElementById('mainContent').innerHTML = `
     <h1 class="page-title">Summary — Everything at a glance</h1>
     <div class="summary-actions">
-      <button class="ghost" onclick="exportExcel()">Export full workbook (.xlsx)</button>
-      <button class="ghost" onclick="exportCSV()">Export all entries (.csv)</button>
-      <button class="ghost" onclick="printSummaryReport()">🖨 Print business report</button>
+      <button class="ghost" onclick="exportExcel()">Export Excel (.xlsx)</button>
+      <button class="ghost" onclick="printSummaryReport()">Export PDF</button>
     </div>
 
     <div style="background:var(--ink); color:#EDEBE3; border-radius:var(--radius); padding:18px 20px; margin-bottom:26px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
@@ -1159,7 +1397,8 @@ function renderSummary(){
       </div>
     </div>
 
-    <h2 class="section-title">Grand total — every account, every section</h2>
+    <h2 class="section-title">Business totals — real transactions</h2>
+    <p style="font-size:12px; color:var(--muted); margin-top:-4px; max-width:760px;">This total counts each real transaction once. Individual ledger balances below include linked mirror entries, so those ledger totals are not meant to be added together to reproduce this figure.</p>
     <table class="ledger"><tbody><tr class="grand-total">
       <td>Overall</td>
       <td class="num" style="color:var(--credit)">${fmt(overall.credit)}</td>
@@ -1206,16 +1445,17 @@ function renderAllEntries(){
   document.getElementById('mainContent').innerHTML = `
     <h1 class="page-title">All Entries — one row per real transaction</h1>
     <div class="summary-actions">
-      <button class="ghost" onclick="exportCSV()">Export all (.csv)</button>
-      <button class="ghost" onclick="printReport('all')">🖨 Print full ledger</button>
+      <button class="ghost" onclick="exportAllEntriesExcel()">Export Excel (.xlsx)</button>
+      <button class="ghost" onclick="printReport('all')">Export PDF</button>
     </div>
     <div class="no-print" style="margin-bottom:14px;">
       <label style="font-size:11px; color:var(--muted); letter-spacing:0.2px; margin-right:8px;">SHOW ENTRIES FOR</label>
       <select onchange="setDateFilter(this.value)">${dateOptions}</select>
-    </div>    <table class="ledger">
+    </div>
+    <div class="table-wrap"><table class="ledger">
       <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
   `;
 }
 
@@ -1236,11 +1476,11 @@ function renderProfile(){
       <button onclick="saveProfile()">Save profile</button>
     </div>
 
-    <h1 class="page-title" style="margin-top:34px;">Backup &amp; Export</h1>
+    <h1 class="page-title" style="margin-top:34px;">Backup &amp; Restore</h1>
     <p style="color:var(--muted); max-width:480px; margin-top:-8px;">
       Your data syncs automatically to your Google account — no manual backup
-      needed. These buttons are for sharing a copy with your accountant or
-      keeping an extra archive.
+      needed. Reports and exports are provided as XLSX and PDF; the JSON backup
+      is only for full-data backup and restore.
     </p>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button onclick="downloadBackup()">⬇ Download backup (.json)</button>
@@ -1250,15 +1490,16 @@ function renderProfile(){
   `;
 }
 
-function saveProfile(){
+async function saveProfile(){
   state.profile = {
     name: document.getElementById('p_name').value.trim(),
     business: document.getElementById('p_business').value.trim(),
     phone: document.getElementById('p_phone').value.trim(),
     address: document.getElementById('p_address').value.trim()
   };
-  saveState();
-  alert('Profile saved.');
+  const ok = await saveState();
+  alert(ok ? 'Profile saved.' : 'Profile changed locally but could not be synchronized to Firebase. Please check your connection.');
+  render();
 }
 
 function downloadBackup(){
@@ -1312,7 +1553,8 @@ function normalizeBackup(parsed){
       amount:t.amount,
       notes:t.notes || '',
       linkGroupId,
-      auto:t.auto === true
+      auto:t.auto === true,
+      createdAt:Number.isFinite(t.createdAt) ? t.createdAt : null
     };
   });
 
@@ -1330,13 +1572,20 @@ function restoreBackup(event){
   const file = event.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try{
       const parsed = JSON.parse(reader.result);
       const restored = normalizeBackup(parsed);
       if(!confirm('This will replace all current data with the backup. Continue?')) return;
+      const previous = state;
       state = restored;
-      saveState();
+      const ok = await saveState();
+      if(!ok){
+        state = previous;
+        render();
+        alert('The backup was valid, but it could not be synchronized to Firebase. Your current data was kept.');
+        return;
+      }
       render();
       alert('Backup restored successfully.');
     }catch(e){
@@ -1365,8 +1614,10 @@ function buildLetterhead(title){
   `;
 }
 
+// PDF export uses the browser print dialog; choose "Save as PDF" in the destination.
 function printSummaryReport(){
   const overall = overallTotals();
+  const engTotals = totalsFor('engineer', null, null);
   let clientRows = '';
   accountsFor('client').forEach(c => {
     const cs = totalsFor('client', c.id, 'client');
@@ -1389,6 +1640,8 @@ function printSummaryReport(){
     <table class="ledger"><thead><tr><th>Material</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${secRows('material')}</tbody></table>
     <h2 class="section-title">Supplier</h2>
     <table class="ledger"><thead><tr><th>Supplier</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody>${secRows('supplier')}</tbody></table>
+    <h2 class="section-title">Engineer</h2>
+    <table class="ledger"><thead><tr><th>Engineer</th><th class="num">Credit</th><th class="num">Debit</th><th class="num">Balance</th></tr></thead><tbody><tr><td>Engineer's own account</td><td class="num">${fmt(engTotals.credit)}</td><td class="num">${fmt(engTotals.debit)}</td><td class="num">${fmt(engTotals.balance)}</td></tr></tbody></table>
     <h2 class="section-title">Grand total</h2>
     <table class="ledger"><tbody><tr class="grand-total"><td>Overall</td><td class="num">${fmt(overall.credit)}</td><td class="num">${fmt(overall.debit)}</td><td class="num">${fmt(overall.balance)}</td></tr></tbody></table>
   `;
@@ -1398,77 +1651,120 @@ function printSummaryReport(){
 
 function printReport(type){
   if(type === 'all'){
-    const primaryOnly = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1);
-    let rows = '';
-    primaryOnly.forEach(t => {
-      const links = siblingLabelsFor(t).join(', ') || '—';
-      rows += `<tr><td class="date">${t.date}</td><td>${SECTION_LABELS[t.section]}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td style="font-size:11px;">${escapeHtml(links)}</td></tr>`;
+    const allPrimary = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> {
+      if(a.date !== b.date) return a.date > b.date ? 1 : -1;
+      if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return 0;
     });
-    const body = buildLetterhead('All Entries — Full Ledger') + `
+    const shown = filteredTransactions(allPrimary, dateFilter).slice().reverse();
+    let rows = '';
+    shown.forEach(t => {
+      const links = siblingLabelsFor(t).join(', ') || '—';
+      rows += `<tr><td class="date">${t.date}</td><td>${escapeHtml(SECTION_LABELS[t.section])}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td style="font-size:11px;">${escapeHtml(links)}</td></tr>`;
+    });
+    const title = dateFilter === 'all' ? 'All Entries — Full Ledger' : 'All Entries — ' + dateFilter;
+    const body = buildLetterhead(title) + `
       <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+      <tbody>${rows || '<tr><td colspan="6">No entries for this period.</td></tr>'}</tbody></table>`;
     document.getElementById('printArea').innerHTML = body;
     window.print();
   }
 }
 
 function printAccountReport(section, accountId, subLedger){
-  const totals = totalsFor(section, accountId, subLedger);
-  const tx = txFor(section, accountId, subLedger);
+  const allTx = txFor(section, accountId, subLedger);
+  const tx = filteredTransactions(allTx, dateFilter);
+  const totals = totalsFromTransactions(tx);
   const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
+  const reportTitle = dateFilter === 'all' ? 'Statement — ' + title : 'Statement — ' + title + ' — ' + dateFilter;
   let bal = 0, rows = '';
   tx.forEach(t => {
     bal += (t.type === 'Credit' ? t.amount : -t.amount);
     rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
   });
   const showBreakdown = (section === 'engineer' || (section === 'client' && subLedger === 'project'));
-  const body = buildLetterhead('Statement — ' + title) + `
+  const breakdown = showBreakdown ? (dateFilter === 'all' ? categoryBreakdownFor(section, accountId, subLedger) : categoryBreakdownForFiltered(section, accountId, subLedger, dateFilter)) : null;
+  const body = buildLetterhead(reportTitle) + `
     <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
-      <div><div style="font-size:10px; color:#777;">TOTAL CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">TOTAL DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL CREDIT' : 'PERIOD CREDIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL DEBIT' : 'PERIOD DEBIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'NET BALANCE' : 'PERIOD NET'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
     </div>
     <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px;">
       <div>${creditDebitChart(totals.credit, totals.debit, 100)}</div>
-      ${showBreakdown ? `<div>${multiSliceChart(categoryBreakdownFor(section, accountId, subLedger), 100)}</div>` : ''}
+      ${showBreakdown ? `<div>${multiSliceChart(breakdown, 100)}</div>` : ''}
     </div>
-    <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Balance</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
+    <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Running balance</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5">No entries for this period.</td></tr>'}</tbody></table>`;
   document.getElementById('printArea').innerHTML = body;
   window.print();
 }
 
 /* ---------------- Export ---------------- */
 
-function exportCSV(){
-  let out = 'Date,Section,Account,Type,Amount,Notes,Also Recorded In\n';
-  state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-    const links = siblingLabelsFor(t).join('; ');
-    out += [t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, links].map(csvEscape).join(',') + '\n';
-  });
-  downloadFile(out, 'all_entries.csv', 'text/csv');
+function safeSheetName(label){
+  const raw = String(label || 'Sheet').replace(/[\\\/\?\*\[\]:]/g,'-').trim();
+  return (raw.slice(0,31) || 'Sheet');
 }
 
-function exportAccountCSV(section, accountId, subLedger){
-  const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? '_' + subLedgerLabel(subLedger) : '');
-  let out = 'Date,Type,Amount,Notes,Running Balance\n';
-  let bal = 0;
-  txFor(section, accountId, subLedger).forEach(t => {
-    bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    out += [t.date, t.type, t.amount, t.notes, bal].map(csvEscape).join(',') + '\n';
+function sortTransactions(tx){
+  return tx.slice().sort((a,b)=> {
+    if(a.date !== b.date) return a.date > b.date ? 1 : -1;
+    if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+    return 0;
   });
-  downloadFile(out, title.replace(/\s+/g,'_') + '.csv', 'text/csv');
+}
+
+function addRowsToWorksheet(wb, rows, name){
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), safeSheetName(name));
+}
+
+function exportAllEntriesExcel(){
+  const wb = XLSX.utils.book_new();
+  const allPrimary = sortTransactions(state.transactions.filter(t => !t.auto));
+  const shown = filteredTransactions(allPrimary, dateFilter);
+  const rows = [['Date','Section','Account','Type','Amount','Notes','Also Recorded In']];
+  shown.forEach(t => {
+    rows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, siblingLabelsFor(t).join('; ')]);
+  });
+  addRowsToWorksheet(wb, rows, 'All Entries');
+  XLSX.writeFile(wb, 'Site_Ledger_All_Entries.xlsx');
+}
+
+function exportAccountExcel(section, accountId, subLedger){
+  const wb = XLSX.utils.book_new();
+  const allTx = txFor(section, accountId, subLedger);
+  const tx = filteredTransactions(allTx, dateFilter);
+  const totals = totalsFromTransactions(tx);
+  const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' - ' + subLedgerLabel(subLedger) : '');
+  const rows = [
+    ['Account', title],
+    ['Period', dateFilter === 'all' ? 'All dates' : dateFilter],
+    ['Credit', totals.credit],
+    ['Debit', totals.debit],
+    ['Net balance', totals.balance],
+    [],
+    ['Date','Type','Amount','Notes', dateFilter === 'all' ? 'Running Balance' : 'Running Period Balance']
+  ];
+  let bal = 0;
+  tx.forEach(t => {
+    bal += (t.type === 'Credit' ? t.amount : -t.amount);
+    rows.push([t.date, t.type, t.amount, t.notes, bal]);
+  });
+  addRowsToWorksheet(wb, rows, title);
+  XLSX.writeFile(wb, safeSheetName(title).replace(/\s+/g,'_') + '.xlsx');
 }
 
 function exportExcel(){
   const wb = XLSX.utils.book_new();
 
+  // One row per real/typed transaction in the master sheet. Auto mirrors are
+  // represented by the "Also Recorded In" column instead of duplicate rows.
   const allRows = [['Date','Section','Account','Type','Amount','Notes','Also Recorded In']];
-  state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-    const links = siblingLabelsFor(t).join('; ');
-    allRows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, links]);
+  sortTransactions(state.transactions.filter(t => !t.auto)).forEach(t => {
+    allRows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, siblingLabelsFor(t).join('; ')]);
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allRows), 'All Entries');
+  addRowsToWorksheet(wb, allRows, 'All Entries');
 
   const sumRows = [['Section','Account','Credit','Debit','Balance']];
   ['labour','material','supplier'].forEach(section => {
@@ -1486,15 +1782,18 @@ function exportExcel(){
   const engT = totalsFor('engineer', null, null);
   sumRows.push(['Engineer', 'Engineer', engT.credit, engT.debit, engT.balance]);
   const overall = overallTotals();
-  sumRows.push(['GRAND TOTAL', '', overall.credit, overall.debit, overall.balance]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumRows), 'Summary');
+  sumRows.push(['BUSINESS TOTAL', '', overall.credit, overall.debit, overall.balance]);
+  addRowsToWorksheet(wb, sumRows, 'Summary');
 
-  const usedNames = {};
+  const usedNames = { 'All Entries':true, 'Summary':true };
   function addAccountSheet(section, accountId, subLedger, label){
-    let safe = label.replace(/[\\\/\?\*\[\]:]/g, '-').slice(0,31) || 'Sheet';
-    let finalName = safe;
+    const base = safeSheetName(label);
+    let finalName = base;
     let n = 1;
-    while(usedNames[finalName]){ finalName = safe.slice(0, 28) + '_' + (++n); }
+    while(usedNames[finalName]){
+      const suffix = '_' + (++n);
+      finalName = base.slice(0, 31 - suffix.length) + suffix;
+    }
     usedNames[finalName] = true;
     const rows = [['Date','Type','Amount','Notes','Running Balance']];
     let bal = 0;
@@ -1523,11 +1822,6 @@ function downloadFile(content, filename, mime){
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-function csvEscape(v){
-  v = (v === undefined || v === null) ? '' : String(v);
-  if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
-  return v;
 }
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
