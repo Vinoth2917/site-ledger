@@ -301,6 +301,8 @@ const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
 let auth = null;
 let db = null;
 let currentUser = null;
+let stopLedgerListener = null;
+let saveQueue = Promise.resolve();
 
 if(FIREBASE_CONFIGURED){
   firebase.initializeApp(firebaseConfig);
@@ -341,7 +343,14 @@ function renderUserBadge(){
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function fmt(n){ return '₹' + (Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function todayStr(){ return new Date().toISOString().slice(0,10); }
+function todayStr(){
+  // Use the user's local calendar date (important for India/IST).
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function seedAccounts(names){ return names.map(n => ({ id: uid('a'), name: n })); }
 
 function categoryBreakdownFor(section, accountId, subLedger){
@@ -456,41 +465,68 @@ const SECTION_LABELS = { labour:'Labour', material:'Material', supplier:'Supplie
 
 /* ---------------- Persistence (Firebase) ---------------- */
 
-async function loadState(){
-  loaded = false;
-  try{
-    const docRef = db.collection('siteLedgers').doc(currentUser.uid);
-    const snap = await docRef.get();
-    if(snap.exists){
-      const data = snap.data();
-      state = {
-        accounts: data.accounts || defaultAccounts(),
-        transactions: data.transactions || [],
-        profile: data.profile || defaultProfile()
-      };
-    } else {
-      state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
-      await docRef.set(state);
-    }
-    setSyncStatus('synced');
-  }catch(e){
-    console.error('Load failed', e);
-    setSyncStatus('error');
-    state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
-  }
+function applyLedgerSnapshot(data){
+  state = {
+    accounts: data.accounts || defaultAccounts(),
+    transactions: data.transactions || [],
+    profile: data.profile || defaultProfile()
+  };
   loaded = true;
+  setSyncStatus('synced');
   render();
 }
 
-async function saveState(){
+function loadState(){
+  loaded = false;
   if(!currentUser || !db) return;
-  try{
-    await db.collection('siteLedgers').doc(currentUser.uid).set(state);
+  if(stopLedgerListener) stopLedgerListener();
+
+  const docRef = db.collection('siteLedgers').doc(currentUser.uid);
+  stopLedgerListener = docRef.onSnapshot(async snap => {
+    try{
+      if(!snap.exists){
+        const freshState = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
+        state = freshState;
+        await docRef.set(freshState);
+        applyLedgerSnapshot(freshState);
+        return;
+      }
+      applyLedgerSnapshot(snap.data());
+    }catch(e){
+      console.error('Load/sync failed', e);
+      setSyncStatus('error');
+    }
+  }, e => {
+    console.error('Ledger listener failed', e);
+    setSyncStatus('error');
+    if(!loaded){
+      state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
+      loaded = true;
+      render();
+    }
+  });
+}
+
+function saveState(){
+  if(!currentUser || !db) return Promise.resolve();
+
+  // Capture the signed-in user and document reference immediately. This avoids
+  // a queued write for User A ever being sent to User B after a sign-out/sign-in.
+  const userUid = currentUser.uid;
+  const docRef = db.collection('siteLedgers').doc(userUid);
+  // Snapshot the state at call time and queue writes so rapid consecutive edits
+  // cannot overtake each other. Firestore's onSnapshot listener provides live
+  // updates when the same account changes on another device.
+  const stateToSave = JSON.parse(JSON.stringify(state));
+  saveQueue = saveQueue.then(async () => {
+    setSyncStatus('connecting');
+    await docRef.set(stateToSave);
     setSyncStatus('synced');
-  }catch(e){
+  }).catch(e => {
     console.error('Save failed', e);
     setSyncStatus('error');
-  }
+  });
+  return saveQueue;
 }
 
 function setSyncStatus(mode){
@@ -568,10 +604,21 @@ function addAccount(section, name){
 
 function deleteAccount(section, accountId){
   const name = accountName(section, accountId);
-  const txCount = state.transactions.filter(t => t.section === section && t.accountId === accountId).length;
-  if(!confirm(`Delete '${name}' and its ${txCount} entrie(s)? This can't be undone.`)) return;
+  const accountTx = state.transactions.filter(t => t.section === section && t.accountId === accountId);
+  const linkedGroupIds = new Set(accountTx.filter(t => t.linkGroupId).map(t => t.linkGroupId));
+  const linkedTxCount = state.transactions.filter(t => t.linkGroupId && linkedGroupIds.has(t.linkGroupId)).length;
+  const extraLinked = Math.max(0, linkedTxCount - accountTx.length);
+  const message = extraLinked > 0
+    ? `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis will also delete ${extraLinked} linked entrie(s) in other ledgers so no orphaned linked records remain.\n\nThis can't be undone.`
+    : `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis can't be undone.`;
+  if(!confirm(message)) return;
+
   state.accounts[section] = state.accounts[section].filter(a => a.id !== accountId);
-  state.transactions = state.transactions.filter(t => !(t.section === section && t.accountId === accountId));
+  state.transactions = state.transactions.filter(t => {
+    if(t.section === section && t.accountId === accountId) return false;
+    if(t.linkGroupId && linkedGroupIds.has(t.linkGroupId)) return false;
+    return true;
+  });
   activeView = 'summary';
   saveState();
   render();
@@ -1217,6 +1264,68 @@ function saveProfile(){
 function downloadBackup(){
   downloadFile(JSON.stringify(state, null, 2), `site_ledger_backup_${todayStr()}.json`, 'application/json');
 }
+function normalizeBackup(parsed){
+  if(!parsed || typeof parsed !== 'object' || !parsed.accounts || !Array.isArray(parsed.transactions)){
+    throw new Error('Backup must contain accounts and transactions arrays.');
+  }
+
+  const sections = ['labour','material','supplier','client'];
+  const accounts = {};
+  const accountIds = new Set();
+
+  sections.forEach(section => {
+    if(!Array.isArray(parsed.accounts[section])) throw new Error(`Invalid ${section} accounts.`);
+    accounts[section] = parsed.accounts[section].map(a => {
+      if(!a || typeof a !== 'object' || typeof a.id !== 'string' || !a.id || typeof a.name !== 'string') {
+        throw new Error(`Invalid ${section} account record.`);
+      }
+      if(accountIds.has(a.id)) throw new Error('Duplicate account ID in backup.');
+      accountIds.add(a.id);
+      return { id:a.id, name:a.name.trim() };
+    }).filter(a => a.name);
+  });
+
+  const txIds = new Set();
+  const transactions = parsed.transactions.map(t => {
+    if(!t || typeof t !== 'object') throw new Error('Invalid transaction record.');
+    if(typeof t.id !== 'string' || !t.id || txIds.has(t.id)) throw new Error('Invalid or duplicate transaction ID.');
+    txIds.add(t.id);
+    if(typeof t.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) throw new Error(`Invalid transaction date: ${t.id}`);
+    if(!['labour','material','supplier','client','engineer'].includes(t.section)) throw new Error(`Invalid transaction section: ${t.id}`);
+    if(!['Credit','Debit'].includes(t.type)) throw new Error(`Invalid transaction type: ${t.id}`);
+    if(typeof t.amount !== 'number' || !Number.isFinite(t.amount) || t.amount <= 0) throw new Error(`Invalid transaction amount: ${t.id}`);
+    if(typeof t.notes !== 'string' && t.notes !== undefined && t.notes !== null) throw new Error(`Invalid transaction notes: ${t.id}`);
+    if(t.section === 'engineer'){
+      if(t.accountId !== null && t.accountId !== undefined && t.accountId !== '') throw new Error(`Engineer transaction must not have an accountId: ${t.id}`);
+    }else{
+      if(typeof t.accountId !== 'string' || !accountIds.has(t.accountId)) throw new Error(`Transaction references a missing account: ${t.id}`);
+    }
+    if(t.section === 'client' && !['client','project'].includes(t.subLedger)) throw new Error(`Invalid client sub-ledger: ${t.id}`);
+    const linkGroupId = typeof t.linkGroupId === 'string' && t.linkGroupId ? t.linkGroupId : uid('lg');
+    return {
+      id:t.id,
+      date:t.date,
+      section:t.section,
+      accountId:t.section === 'engineer' ? null : t.accountId,
+      subLedger:t.section === 'client' ? t.subLedger : null,
+      type:t.type,
+      amount:t.amount,
+      notes:t.notes || '',
+      linkGroupId,
+      auto:t.auto === true
+    };
+  });
+
+  const profile = parsed.profile && typeof parsed.profile === 'object' ? {
+    name: typeof parsed.profile.name === 'string' ? parsed.profile.name : '',
+    business: typeof parsed.profile.business === 'string' ? parsed.profile.business : '',
+    phone: typeof parsed.profile.phone === 'string' ? parsed.profile.phone : '',
+    address: typeof parsed.profile.address === 'string' ? parsed.profile.address : ''
+  } : defaultProfile();
+
+  return { accounts, transactions, profile };
+}
+
 function restoreBackup(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -1224,15 +1333,15 @@ function restoreBackup(event){
   reader.onload = () => {
     try{
       const parsed = JSON.parse(reader.result);
-      if(!parsed.accounts || !parsed.transactions){ throw new Error('Not a valid backup file'); }
+      const restored = normalizeBackup(parsed);
       if(!confirm('This will replace all current data with the backup. Continue?')) return;
-      state = parsed;
-      state.profile = state.profile || defaultProfile();
+      state = restored;
       saveState();
       render();
-      alert('Backup restored.');
+      alert('Backup restored successfully.');
     }catch(e){
-      alert("That file doesn't look like a valid Site Ledger backup.");
+      console.error('Backup restore failed:', e);
+      alert("That file doesn't look like a valid Site Ledger backup. No data was changed.");
     }
   };
   reader.readAsText(file);
@@ -1251,7 +1360,7 @@ function buildLetterhead(title){
       <div class="meta">
         ${p.name ? escapeHtml(p.name) + ' &nbsp;·&nbsp; ' : ''}${p.phone ? escapeHtml(p.phone) + ' &nbsp;·&nbsp; ' : ''}${escapeHtml(p.address || '')}
       </div>
-      <div class="meta" style="margin-top:8px; font-weight:600; color:#16243A;">${title}</div>
+      <div class="meta" style="margin-top:8px; font-weight:600; color:#16243A;">${escapeHtml(title)}</div>
     </div>
   `;
 }
@@ -1354,9 +1463,10 @@ function exportAccountCSV(section, accountId, subLedger){
 function exportExcel(){
   const wb = XLSX.utils.book_new();
 
-  const allRows = [['Date','Section','Account','Type','Amount','Notes']];
-  state.transactions.slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
-    allRows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes]);
+  const allRows = [['Date','Section','Account','Type','Amount','Notes','Also Recorded In']];
+  state.transactions.filter(t => !t.auto).slice().sort((a,b)=> a.date > b.date ? 1 : -1).forEach(t => {
+    const links = siblingLabelsFor(t).join('; ');
+    allRows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, links]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allRows), 'All Entries');
 
@@ -1428,6 +1538,10 @@ function escapeJs(s){ return String(s).replace(/'/g, "\\'"); }
 
 if(FIREBASE_CONFIGURED){
   auth.onAuthStateChanged(user => {
+    if(!user && stopLedgerListener){
+      stopLedgerListener();
+      stopLedgerListener = null;
+    }
     currentUser = user;
     if(user){
       document.getElementById('signInGate').style.display = 'none';
