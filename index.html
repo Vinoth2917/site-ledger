@@ -201,6 +201,11 @@
   .del-btn:hover{ color:var(--debit); }
 
   .empty-state{ border:1px dashed var(--line-strong); border-radius:var(--radius); padding:36px 20px; text-align:center; color:var(--muted); }
+  .integrity-sidebar{padding:14px 16px; color:#7A2E24; display:flex; flex-direction:column; gap:4px; font-size:11.5px;}
+  .integrity-sidebar strong{font-size:12px;}
+  .integrity-block{ background:#FFF6F3; border:1px solid #D8A79B; border-left:4px solid var(--debit); padding:22px 24px; max-width:760px; border-radius:4px; margin-top:20px; }
+  .integrity-title{ font-family:'Zilla Slab',serif; font-size:21px; font-weight:700; margin-bottom:8px; color:var(--ink); }
+  .integrity-block p{ margin:7px 0; color:var(--muted); line-height:1.5; }
 
   .summary-actions{ display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
   tr.grand-total td{ font-weight:700; border-top:2px solid var(--ink); border-bottom:none; }
@@ -216,7 +221,7 @@
   .print-only{ display:none; }
   #printArea{ display:none; }
   @media print{
-    header.topbar, nav.sidebar, .shell, .no-print{ display:none !important; }
+    header.topbar, nav.sidebar, .shell, .no-print, .excel-ribbon, .sheet-tabs, .bottom-statusbar{ display:none !important; }
     body{ background:#fff; }
     main.content{ padding:0; max-width:none; }
     #mainContent{ display:none; }
@@ -621,7 +626,43 @@ function renderUserBadge(){
    ============================================================ */
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
-function fmt(n){ return '₹' + (Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+// Money is entered/stored in rupees for readability and backward compatibility,
+// but every calculation is performed in integer paise. This removes binary
+// floating-point drift from financial totals such as 0.10 + 0.20.
+function toPaise(value){
+  const n = Number(value);
+  if(!Number.isFinite(n)) throw new Error('Invalid money amount.');
+  const scaled = n * 100;
+  const paise = Math.round(scaled);
+  // Money is intentionally limited to two decimal places. Never silently
+  // round a third decimal place because that would change financial data.
+  if(Math.abs(scaled - paise) > 1e-8) throw new Error('Money amounts must have at most two decimal places.');
+  if(!Number.isSafeInteger(paise)) throw new Error('Money amount is outside the supported range.');
+  return paise;
+}
+function fromPaise(paise){
+  if(!Number.isSafeInteger(paise)) throw new Error('Invalid paise total.');
+  return paise / 100;
+}
+function addPaiseSafe(a, b){
+  if(!Number.isSafeInteger(a) || !Number.isSafeInteger(b)) throw new Error('Invalid paise value.');
+  const result = a + b;
+  if(!Number.isSafeInteger(result)) throw new Error('Financial total is outside the supported range.');
+  return result;
+}
+function normalizeMoney(value){
+  const paise = toPaise(value);
+  if(paise <= 0) throw new Error('Money amount must be greater than zero.');
+  return fromPaise(paise);
+}
+function formatPaise(paise){
+  if(!Number.isSafeInteger(paise)) throw new Error('Invalid paise value.');
+  const sign = paise < 0 ? '-₹' : '₹';
+  return sign + fromPaise(Math.abs(paise)).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmt(n){ return formatPaise(toPaise(n)); }
+function fmtSigned(n){ return formatPaise(toPaise(n)); }
 function todayStr(){
   // Use the user's local calendar date (important for India/IST).
   const d = new Date();
@@ -630,18 +671,23 @@ function todayStr(){
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+function isValidDateString(value){
+  if(typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y,m,d] = value.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
 function seedAccounts(names){ return names.map(n => ({ id: uid('a'), name: n })); }
 
 function categoryBreakdownFor(section, accountId, subLedger){
-  // Groups this ledger's expenses (Debit entries) by where the money actually
-  // went — Cement, Mason Labour, a specific supplier, etc. — by tracing each
-  // auto-linked entry back to the primary entry that created it.
   const tx = txFor(section, accountId, subLedger).filter(t => t.type === 'Debit');
-  const map = {};
+  const mapPaise = {};
   tx.forEach(t => {
     const label = t.auto ? (primarySiblingLabelFor(t) || 'Other') : 'Direct entry (not linked)';
-    map[label] = (map[label] || 0) + t.amount;
+    mapPaise[label] = addPaiseSafe(mapPaise[label] || 0, toPaise(t.amount));
   });
+  const map = {};
+  Object.keys(mapPaise).forEach(label => { map[label] = fromPaise(mapPaise[label]); });
   return map;
 }
 
@@ -650,16 +696,17 @@ function multiSliceChart(dataObj, size){
   const r = size/2 - 9;
   const cx = size/2, cy = size/2;
   const entries = Object.entries(dataObj).sort((a,b) => b[1]-a[1]);
-  const total = entries.reduce((s,[,v]) => s+v, 0);
+  const totalPaise = entries.reduce((sum,[,v]) => addPaiseSafe(sum, toPaise(v)), 0);
+  const total = fromPaise(totalPaise);
   const palette = ['#2B6F62','#C1512A','#4A6FA5','#8A6D3B','#8B3A2E','#5B7065','#A0522D','#6B5B95','#3B6E8F','#B08D57','#7A5C61','#4E6E58'];
   let ring = '';
-  if(total <= 0){
+  if(totalPaise <= 0){
     ring = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#DBD8CC" stroke-width="16"/>`;
   } else {
     const circumference = 2 * Math.PI * r;
     let offsetAccum = 0;
     entries.forEach(([label, val], i) => {
-      const len = (val/total) * circumference;
+      const len = (toPaise(val)/totalPaise) * circumference;
       const color = palette[i % palette.length];
       ring += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="16"
         stroke-dasharray="${len} ${circumference}" stroke-dashoffset="${-offsetAccum}"
@@ -668,7 +715,7 @@ function multiSliceChart(dataObj, size){
     });
   }
   const legend = entries.map(([label, val], i) => {
-    const pct = total > 0 ? Math.round((val/total)*100) : 0;
+    const pct = totalPaise > 0 ? Math.round((toPaise(val)/totalPaise)*100) : 0;
     const color = palette[i % palette.length];
     return `<div style="margin-bottom:4px;"><span style="display:inline-block; width:10px; height:10px; background:${color}; border-radius:2px; margin-right:6px;"></span>${escapeHtml(label)}&nbsp; <strong style="font-family:'IBM Plex Mono', monospace;">${fmt(val)}</strong> <span style="color:var(--muted);">(${pct}%)</span></div>`;
   }).join('');
@@ -684,13 +731,15 @@ function creditDebitChart(credit, debit, size, onDark){
   size = size || 130;
   const r = size/2 - 9;
   const cx = size/2, cy = size/2;
-  const total = credit + debit;
+  const creditPaise = toPaise(credit);
+  const debitPaise = toPaise(debit);
+  const totalPaise = addPaiseSafe(creditPaise, debitPaise);
   const circumference = 2 * Math.PI * r;
   let ring;
-  if(total <= 0){
+  if(totalPaise <= 0){
     ring = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#DBD8CC" stroke-width="16"/>`;
-  } else {
-    const creditLen = (credit/total) * circumference;
+  }else{
+    const creditLen = (creditPaise/totalPaise) * circumference;
     ring = `
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#F1EFE6" stroke-width="16"/>
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#2B6F62" stroke-width="16"
@@ -701,8 +750,8 @@ function creditDebitChart(credit, debit, size, onDark){
         transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>
     `;
   }
-  const creditPct = total > 0 ? Math.round((credit/total)*100) : 0;
-  const debitPct = total > 0 ? 100 - creditPct : 0;
+  const creditPct = totalPaise > 0 ? Math.round((creditPaise/totalPaise)*100) : 0;
+  const debitPct = totalPaise > 0 ? 100 - creditPct : 0;
   const mutedColor = onDark ? '#B9B4A2' : 'var(--muted)';
   const creditColor = onDark ? '#7FC4B3' : 'var(--credit)';
   const debitColor = onDark ? '#E39C8D' : 'var(--debit)';
@@ -743,8 +792,12 @@ let pendingSupplierType = 'Debit';
 let pendingEngineerType = 'Debit';
 let lastSyncedState = null;
 const pendingSavesByUid = Object.create(null);
+const saveOutcomeByUid = Object.create(null);
 let saveQueue = Promise.resolve();
 let entrySaveInProgress = false;
+let dataIntegrityBlocked = false;
+let dataIntegrityMessage = '';
+const OFFLINE_PREFIX = 'siteLedger.pending.v1.';
 
 const SECTION_LABELS = { labour:'Labour', material:'Material', supplier:'Supplier', client:'Client', engineer:'Engineer' };
 
@@ -761,23 +814,129 @@ function sameJson(a, b){
 function normalizeStateShape(data){
   const base = data && typeof data === 'object' ? data : {};
   const accounts = base.accounts && typeof base.accounts === 'object' ? base.accounts : {};
+  const sectionNames = ['labour','material','supplier','client'];
   const normalizedAccounts = {};
-  ['labour','material','supplier','client'].forEach(section => {
-    normalizedAccounts[section] = Array.isArray(accounts[section]) ? accounts[section].filter(a => a && typeof a.id === 'string' && typeof a.name === 'string').map(a => ({id:a.id, name:a.name})) : [];
+  const accountIds = new Set();
+
+  sectionNames.forEach(section => {
+    if(!Array.isArray(accounts[section])) throw new Error(`Invalid ${section} accounts data.`);
+    const sectionNamesSeen = new Set();
+    normalizedAccounts[section] = accounts[section].map(a => {
+      if(!a || typeof a.id !== 'string' || !a.id || typeof a.name !== 'string'){
+        throw new Error(`Invalid ${section} account record.`);
+      }
+      const name = a.name.trim();
+      if(!name) throw new Error(`Account name cannot be empty in ${section}.`);
+      if(accountIds.has(a.id)) throw new Error('Duplicate account ID detected.');
+      const nameKey = name.toLocaleLowerCase('en-IN');
+      if(sectionNamesSeen.has(nameKey)) throw new Error(`Duplicate account name in ${section}: ${name}`);
+      sectionNamesSeen.add(nameKey);
+      accountIds.add(a.id);
+      return { id:a.id, name };
+    });
   });
-  const transactions = Array.isArray(base.transactions) ? base.transactions.filter(t => t && typeof t === 'object').map(t => ({
-    id: typeof t.id === 'string' ? t.id : uid('t'),
-    date: typeof t.date === 'string' ? t.date : todayStr(),
-    section: t.section,
-    accountId: t.section === 'engineer' ? null : (typeof t.accountId === 'string' ? t.accountId : null),
-    subLedger: t.section === 'client' ? t.subLedger : null,
-    type: t.type === 'Credit' ? 'Credit' : 'Debit',
-    amount: Number.isFinite(t.amount) ? t.amount : Number(t.amount),
-    notes: typeof t.notes === 'string' ? t.notes : '',
-    linkGroupId: typeof t.linkGroupId === 'string' && t.linkGroupId ? t.linkGroupId : uid('lg'),
-    auto: t.auto === true,
-    createdAt: Number.isFinite(t.createdAt) ? t.createdAt : null
-  })) : [];
+
+  if(!Array.isArray(base.transactions)) throw new Error('Invalid transactions data.');
+  const txIds = new Set();
+  const linkGroupPrimaries = new Map();
+  const transactions = base.transactions.map(t => {
+    if(!t || typeof t !== 'object') throw new Error('Invalid transaction record.');
+    if(typeof t.id !== 'string' || !t.id || txIds.has(t.id)) throw new Error('Invalid or duplicate transaction ID.');
+    txIds.add(t.id);
+    if(!isValidDateString(t.date)) throw new Error(`Invalid transaction date: ${t.id}`);
+    if(!['labour','material','supplier','client','engineer'].includes(t.section)) throw new Error(`Invalid transaction section: ${t.id}`);
+    if(!['Credit','Debit'].includes(t.type)) throw new Error(`Invalid transaction type: ${t.id}`);
+    const amount = normalizeMoney(t.amount);
+    const linkGroupId = typeof t.linkGroupId === 'string' && t.linkGroupId ? t.linkGroupId : uid('lg');
+    const auto = t.auto === true;
+    if(!auto){
+      const previousPrimary = linkGroupPrimaries.get(linkGroupId);
+      if(previousPrimary) throw new Error(`Multiple original transactions share link group ${linkGroupId}.`);
+      linkGroupPrimaries.set(linkGroupId, t.id);
+    }
+
+    if(t.section === 'engineer'){
+      if(t.accountId !== null && t.accountId !== undefined && t.accountId !== ''){
+        throw new Error(`Engineer transaction must not have an accountId: ${t.id}`);
+      }
+    }else{
+      if(typeof t.accountId !== 'string' || !accountIds.has(t.accountId)){
+        throw new Error(`Transaction references a missing account: ${t.id}`);
+      }
+    }
+    if(t.section === 'client' && !['client','project'].includes(t.subLedger)){
+      throw new Error(`Invalid client sub-ledger: ${t.id}`);
+    }
+
+    let createdAt = null;
+    if(t.createdAt !== null && t.createdAt !== undefined){
+      if(!Number.isSafeInteger(t.createdAt) || t.createdAt < 0) throw new Error(`Invalid transaction timestamp: ${t.id}`);
+      createdAt = t.createdAt;
+    }
+    return {
+      id:t.id,
+      date:t.date,
+      section:t.section,
+      accountId:t.section === 'engineer' ? null : t.accountId,
+      subLedger:t.section === 'client' ? t.subLedger : null,
+      type:t.type,
+      amount,
+      notes:typeof t.notes === 'string' ? t.notes : '',
+      linkGroupId,
+      auto,
+      createdAt
+    };
+  });
+
+  // Every automatic mirror must still have one real/original transaction.
+  // Mirrors must also preserve the source transaction's date/type/amount and
+  // must not duplicate the same target ledger inside one linked group.
+  const primaryByGroup = new Map();
+  transactions.forEach(t => { if(!t.auto) primaryByGroup.set(t.linkGroupId, t); });
+  const groupLedgerKeys = new Map();
+  transactions.forEach(t => {
+    const primary = primaryByGroup.get(t.linkGroupId);
+    if(t.auto){
+      if(!primary){
+        throw new Error(`Orphan linked transaction detected: ${t.id}`);
+      }
+      if(t.date !== primary.date || t.type !== primary.type || toPaise(t.amount) !== toPaise(primary.amount)){
+        throw new Error(`Linked transaction does not match its original transaction: ${t.id}`);
+      }
+      // Only destinations that the Daily Entry linking rules can create are
+      // allowed. Optional mirrors may be deleted intentionally, so we do not
+      // require any particular mirror to exist; we only reject impossible ones.
+      const allowed = primary.section === 'labour'
+        ? ['engineer','client']
+        : primary.section === 'material'
+          ? ['engineer','client','supplier']
+          : primary.section === 'supplier'
+            ? ['engineer','client']
+            : [];
+      if(!allowed.includes(t.section)){
+        throw new Error(`Invalid linked destination for transaction: ${t.id}`);
+      }
+      if(t.section === 'client' && t.subLedger !== 'project'){
+        throw new Error(`Automatic client links must use the project ledger: ${t.id}`);
+      }
+      if(t.section === 'engineer' && (t.accountId !== null || t.subLedger !== null)){
+        throw new Error(`Automatic Engineer links must use the Engineer account: ${t.id}`);
+      }
+    }
+    const key = `${t.linkGroupId}|${ledgerIdentity(t)}`;
+    if(groupLedgerKeys.has(key)){
+      throw new Error(`Duplicate ledger entry in link group: ${t.linkGroupId}`);
+    }
+    groupLedgerKeys.set(key, t.id);
+  });
+
+  const profile = base.profile && typeof base.profile === 'object' ? {
+    name: typeof base.profile.name === 'string' ? base.profile.name.trim() : '',
+    business: typeof base.profile.business === 'string' ? base.profile.business.trim() : '',
+    phone: typeof base.profile.phone === 'string' ? base.profile.phone.trim() : '',
+    address: typeof base.profile.address === 'string' ? base.profile.address.trim() : ''
+  } : defaultProfile();
+
   return {
     accounts: {
       labour: normalizedAccounts.labour,
@@ -786,18 +945,34 @@ function normalizeStateShape(data){
       client: normalizedAccounts.client
     },
     transactions,
-    profile: base.profile && typeof base.profile === 'object' ? {
-      name: typeof base.profile.name === 'string' ? base.profile.name : '',
-      business: typeof base.profile.business === 'string' ? base.profile.business : '',
-      phone: typeof base.profile.phone === 'string' ? base.profile.phone : '',
-      address: typeof base.profile.address === 'string' ? base.profile.address : ''
-    } : defaultProfile()
+    profile
   };
 }
 
+function offlinePendingKey(uid){ return OFFLINE_PREFIX + uid; }
+function readOfflinePending(uid){
+  try{
+    const raw = localStorage.getItem(offlinePendingKey(uid));
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
+    console.warn('Offline pending state could not be read:', e);
+    return null;
+  }
+}
+function writeOfflinePending(uid, payload){
+  try{ localStorage.setItem(offlinePendingKey(uid), JSON.stringify(payload)); return true; }
+  catch(e){ console.error('Offline pending state could not be stored:', e); return false; }
+}
+function clearOfflinePending(uid){
+  try{ localStorage.removeItem(offlinePendingKey(uid)); }catch(e){ console.warn('Offline pending state could not be cleared:', e); }
+}
+
 function applyLedgerSnapshot(data){
-  state = normalizeStateShape(data);
-  lastSyncedState = cloneState(state);
+  const normalized = normalizeStateShape(data);
+  state = normalized;
+  lastSyncedState = cloneState(normalized);
+  dataIntegrityBlocked = false;
+  dataIntegrityMessage = '';
   loaded = true;
   setSyncStatus('synced');
   render();
@@ -813,22 +988,28 @@ function removedAccountIdsBySection(base, local){
   return removed;
 }
 
+function ledgerIdentity(t){
+  return [t.section || '', t.accountId || '', t.section === 'client' ? (t.subLedger || '') : ''].join('|');
+}
+
 function mergeLocalChanges(base, local, remote){
   const merged = cloneState(remote);
   const removedAccounts = removedAccountIdsBySection(base, local);
   const ownedDeletedGroupIds = new Set();
+
+  // If a local account deletion removed an original transaction, the entire
+  // linked group belongs to that deleted account's source entry and must be
+  // removed from the remote state too. This prevents orphaned mirrors.
   (base.transactions || []).forEach(t => {
     const accountDeleted = t && t.section !== 'engineer' && removedAccounts[t.section]?.has(t.accountId);
     if(accountDeleted && t.auto !== true && t.linkGroupId) ownedDeletedGroupIds.add(t.linkGroupId);
   });
 
-  // Account changes are merged by account ID. Local deletions win for that account.
   ['labour','material','supplier','client'].forEach(section => {
     const baseMap = new Map((base.accounts?.[section] || []).map(a => [a.id, a]));
     const localMap = new Map((local.accounts?.[section] || []).map(a => [a.id, a]));
     const remoteList = merged.accounts[section] || [];
     const remoteMap = new Map(remoteList.map(a => [a.id, a]));
-
     for(const [id] of baseMap){
       if(!localMap.has(id)) remoteMap.delete(id);
     }
@@ -839,21 +1020,31 @@ function mergeLocalChanges(base, local, remote){
     merged.accounts[section] = Array.from(remoteMap.values());
   });
 
-  // Transaction changes are merged by transaction ID. Local deletions win,
-  // local edits/additions win, and unrelated remote transactions are preserved.
   const baseMap = new Map((base.transactions || []).map(t => [t.id, t]));
   const localMap = new Map((local.transactions || []).map(t => [t.id, t]));
   const removedTxIds = new Set();
-  for(const [id] of baseMap){
-    if(!localMap.has(id)) removedTxIds.add(id);
+  const deletedPrimaryGroupIds = new Set();
+  for(const [id, baseTx] of baseMap){
+    if(!localMap.has(id)){
+      removedTxIds.add(id);
+      if(baseTx && baseTx.auto !== true && baseTx.linkGroupId){
+        deletedPrimaryGroupIds.add(baseTx.linkGroupId);
+      }
+    }
   }
+  const removedWholeGroups = new Set([...ownedDeletedGroupIds, ...deletedPrimaryGroupIds]);
 
   const accountWasDeleted = t => {
     if(!t || t.section === 'engineer') return false;
     return removedAccounts[t.section]?.has(t.accountId) || false;
   };
 
-  let txs = (merged.transactions || []).filter(t => !removedTxIds.has(t.id) && !accountWasDeleted(t) && !(t.linkGroupId && ownedDeletedGroupIds.has(t.linkGroupId)));
+  let txs = (merged.transactions || []).filter(t =>
+    !removedTxIds.has(t.id) &&
+    !accountWasDeleted(t) &&
+    !(t.linkGroupId && removedWholeGroups.has(t.linkGroupId))
+  );
+
   const txIndex = new Map(txs.map(t => [t.id, t]));
   for(const [id, value] of localMap){
     const baseValue = baseMap.get(id);
@@ -861,121 +1052,211 @@ function mergeLocalChanges(base, local, remote){
   }
   merged.transactions = Array.from(txIndex.values());
 
-  // Profile is a single editable object; local changes win only when the local
-  // copy actually differs from the last synced copy.
   if(!sameJson(base.profile || defaultProfile(), local.profile || defaultProfile())){
     merged.profile = cloneState(local.profile || defaultProfile());
   }
+  return normalizeStateShape(merged);
+}
 
-  return merged;
+function showIntegrityError(error){
+  dataIntegrityBlocked = true;
+  dataIntegrityMessage = error?.message || 'The ledger data failed integrity validation.';
+  setSyncStatus('error');
+  loaded = true;
+  render();
+}
+
+function pendingChangesSummary(base, local){
+  return { base:cloneState(base), local:cloneState(local), mode:'merge', savedAt:Date.now() };
+}
+
+function mergeWithRemoteForSave(baseForSave, localForSave, remote){
+  return mergeLocalChanges(baseForSave, localForSave, remote);
 }
 
 function loadState(){
   loaded = false;
   lastSyncedState = null;
+  dataIntegrityBlocked = false;
+  dataIntegrityMessage = '';
   if(!currentUser || !db) return;
   if(stopLedgerListener) stopLedgerListener();
 
   const userUid = currentUser.uid;
+  const pending = readOfflinePending(userUid);
+  if(pending && pending.local){
+    try{
+      state = normalizeStateShape(pending.local);
+      lastSyncedState = pending.base ? normalizeStateShape(pending.base) : cloneState(state);
+      loaded = true;
+      setSyncStatus('offline');
+      render();
+    }catch(e){
+      clearOfflinePending(userUid);
+      showIntegrityError(e);
+    }
+  }
+
   const docRef = db.collection('siteLedgers').doc(userUid);
   stopLedgerListener = docRef.onSnapshot(snap => {
     try{
-      // While this user has local writes in flight, ignore snapshots temporarily.
-      // The Firestore transaction in saveState() merges remote changes into the
-      // local edits and then publishes one coherent state back to the UI.
-      if(pendingSavesByUid[userUid] > 0) return;
+      // Keep local unsynced work visible until it has been merged remotely.
+      if(pendingSavesByUid[userUid] > 0 || readOfflinePending(userUid)) return;
       if(!snap.exists){
         const freshState = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
         state = freshState;
         lastSyncedState = cloneState(freshState);
         loaded = true;
-        snap.ref.set(freshState).catch(e => console.error('Initial state save failed:', e));
-        setSyncStatus('synced');
+        snap.ref.set(freshState).then(() => setSyncStatus('synced')).catch(e => setSyncStatus('error'));
         render();
         return;
       }
       applyLedgerSnapshot(snap.data());
     }catch(e){
       console.error('Load/sync failed', e);
-      setSyncStatus('error');
+      showIntegrityError(e);
     }
   }, e => {
     console.error('Ledger listener failed', e);
-    setSyncStatus('error');
+    setSyncStatus(navigator.onLine === false ? 'offline' : 'error');
     if(!loaded){
-      state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
-      lastSyncedState = cloneState(state);
+      // Never replace potentially valid/valuable remote data with a fresh empty
+      // ledger when loading fails. Show a blocking integrity state instead.
       loaded = true;
+      dataIntegrityBlocked = true;
+      dataIntegrityMessage = 'The ledger could not be loaded safely. No existing data was replaced.';
       render();
     }
   });
 }
 
-function saveState(){
-  if(!currentUser || !db) return Promise.resolve(true);
+async function flushOfflinePending(userUid){
+  const pending = readOfflinePending(userUid);
+  if(!pending || !pending.local || !currentUser || currentUser.uid !== userUid || !db) return true;
+  try{
+    const docRef = db.collection('siteLedgers').doc(userUid);
+    const result = await db.runTransaction(async transaction => {
+      const snap = await transaction.get(docRef);
+      if(pending.mode === 'replace'){
+        const replacement = normalizeStateShape(pending.local);
+        transaction.set(docRef, replacement);
+        return replacement;
+      }
+      if(!snap.exists){
+        const localOnly = normalizeStateShape(pending.local);
+        transaction.set(docRef, localOnly);
+        return localOnly;
+      }
+      const remote = normalizeStateShape(snap.data());
+      const base = normalizeStateShape(pending.base || remote);
+      const local = normalizeStateShape(pending.local);
+      const merged = mergeWithRemoteForSave(base, local, remote);
+      transaction.set(docRef, merged);
+      return merged;
+    });
+    clearOfflinePending(userUid);
+    if(currentUser && currentUser.uid === userUid){
+      state = cloneState(result);
+      lastSyncedState = cloneState(result);
+      setSyncStatus('synced');
+      render();
+    }
+    return true;
+  }catch(e){
+    console.error('Pending offline sync failed:', e);
+    if(currentUser && currentUser.uid === userUid) setSyncStatus('offline');
+    return false;
+  }
+}
 
+async function saveState(options={}){
+  if(!currentUser || !db) return true;
   const userUid = currentUser.uid;
   const baseForSave = cloneState(lastSyncedState || state);
   const localForSave = cloneState(state);
   pendingSavesByUid[userUid] = (pendingSavesByUid[userUid] || 0) + 1;
 
   const task = saveQueue.then(async () => {
-    setSyncStatus('connecting');
+    setSyncStatus(navigator.onLine === false ? 'offline' : 'connecting');
     const docRef = db.collection('siteLedgers').doc(userUid);
     try{
-      let merged;
       if(navigator.onLine === false){
-        merged = localForSave;
-        await docRef.set(merged);
-        if(currentUser && currentUser.uid === userUid) setSyncStatus('offline');
-      }else{
-        merged = await db.runTransaction(async transaction => {
-          const snap = await transaction.get(docRef);
-          const remote = snap.exists ? normalizeStateShape(snap.data()) : { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
-          const next = mergeLocalChanges(baseForSave, localForSave, remote);
-          transaction.set(docRef, next);
-          return next;
-        });
+        const existingPending = readOfflinePending(userUid);
+        const preserveReplace = options.replace === true || existingPending?.mode === 'replace';
+        const payload = preserveReplace
+          ? { mode:'replace', base:baseForSave, local:localForSave, savedAt:Date.now() }
+          : pendingChangesSummary(baseForSave, localForSave);
+        if(!writeOfflinePending(userUid, payload)) throw new Error('Offline storage is unavailable; changes cannot be safely queued.');
+        saveOutcomeByUid[userUid] = 'offline';
+        if(currentUser && currentUser.uid === userUid){
+          setSyncStatus('offline');
+          render();
+        }
+        return true;
       }
 
-      // Only update the visible UI if this is still the same signed-in user.
-      // The transaction result contains any remote edits that arrived concurrently.
+      const merged = await db.runTransaction(async transaction => {
+        const snap = await transaction.get(docRef);
+        if(options.replace){
+          const replacement = normalizeStateShape(localForSave);
+          transaction.set(docRef, replacement);
+          return replacement;
+        }
+        if(!snap.exists){
+          const localOnly = normalizeStateShape(localForSave);
+          transaction.set(docRef, localOnly);
+          return localOnly;
+        }
+        const remote = normalizeStateShape(snap.data());
+        const next = mergeWithRemoteForSave(baseForSave, localForSave, remote);
+        transaction.set(docRef, next);
+        return next;
+      });
+
+      clearOfflinePending(userUid);
+      saveOutcomeByUid[userUid] = 'synced';
       if(currentUser && currentUser.uid === userUid && pendingSavesByUid[userUid] === 1){
         state = cloneState(merged);
         lastSyncedState = cloneState(merged);
+        dataIntegrityBlocked = false;
         render();
-      } else if(currentUser && currentUser.uid === userUid){
+      }else if(currentUser && currentUser.uid === userUid){
         lastSyncedState = cloneState(merged);
       }
       return true;
     }catch(e){
       console.error('Save failed', e);
-      const canQueueOffline = e && (e.code === 'unavailable' || navigator.onLine === false);
-      if(canQueueOffline){
-        try{
-          await docRef.set(localForSave);
-          if(currentUser && currentUser.uid === userUid){
-            lastSyncedState = cloneState(localForSave);
-            setSyncStatus('offline');
-          }
+      const canQueue = e && (e.code === 'unavailable' || navigator.onLine === false);
+      if(canQueue){
+        const existingPending = readOfflinePending(userUid);
+        const preserveReplace = options.replace === true || existingPending?.mode === 'replace';
+        const payload = preserveReplace
+          ? { mode:'replace', base:baseForSave, local:localForSave, savedAt:Date.now() }
+          : pendingChangesSummary(baseForSave, localForSave);
+        if(writeOfflinePending(userUid, payload)){
+          saveOutcomeByUid[userUid] = 'offline';
+          if(currentUser && currentUser.uid === userUid) setSyncStatus('offline');
           return true;
-        }catch(fallbackError){
-          console.error('Offline save fallback failed', fallbackError);
         }
       }
+      saveOutcomeByUid[userUid] = 'error';
       if(currentUser && currentUser.uid === userUid) setSyncStatus('error');
       return false;
     }
   }).finally(() => {
     pendingSavesByUid[userUid] = Math.max(0, (pendingSavesByUid[userUid] || 1) - 1);
     if(currentUser && currentUser.uid === userUid && pendingSavesByUid[userUid] === 0){
-      setSyncStatus(navigator.onLine === false ? 'offline' : 'synced');
+      const outcome = saveOutcomeByUid[userUid];
+      if(readOfflinePending(userUid) || navigator.onLine === false || outcome === 'offline') setSyncStatus('offline');
+      else if(outcome === 'error') setSyncStatus('error');
+      else setSyncStatus('synced');
     }
   });
 
   saveQueue = task.then(() => undefined, () => undefined);
   return task;
 }
+
 
 function setSyncStatus(mode){
   const el = document.getElementById('syncStatus');
@@ -1044,12 +1325,13 @@ async function addAccount(section, name){
     alert("'" + name + "' already exists in " + SECTION_LABELS[section] + ".");
     return;
   }
+  const previous = cloneState(state);
   const acc = { id: uid('a'), name };
   list.push(acc);
   const ok = await saveState();
   if(!ok){
-    state.accounts[section] = state.accounts[section].filter(a => a.id !== acc.id);
-    alert('The new account could not be synchronized to Firebase. Please check your connection and try again.');
+    state = previous;
+    alert('The new account could not be synchronized to Firebase. No account was added.');
     render();
     return;
   }
@@ -1060,9 +1342,6 @@ async function addAccount(section, name){
 async function deleteAccount(section, accountId){
   const name = accountName(section, accountId);
   const accountTx = state.transactions.filter(t => t.section === section && t.accountId === accountId);
-  // Only a transaction that is the primary (typed) entry owns its linked group.
-  // If this account only contains an auto-created mirror, remove that mirror
-  // but preserve the source transaction and mirrors in other ledgers.
   const ownedGroupIds = new Set(accountTx.filter(t => t.auto !== true && t.linkGroupId).map(t => t.linkGroupId));
   const mirrorOnlyCount = accountTx.filter(t => t.auto === true).length;
   const message = mirrorOnlyCount > 0 && ownedGroupIds.size === 0
@@ -1072,6 +1351,7 @@ async function deleteAccount(section, accountId){
       : `Delete '${name}' and its ${accountTx.length} entrie(s)?\n\nThis can't be undone.`;
   if(!confirm(message)) return;
 
+  const previous = cloneState(state);
   state.accounts[section] = state.accounts[section].filter(a => a.id !== accountId);
   state.transactions = state.transactions.filter(t => {
     if(t.section === section && t.accountId === accountId) return false;
@@ -1079,28 +1359,42 @@ async function deleteAccount(section, accountId){
     return true;
   });
   activeView = 'summary';
-  saveState();
+  const ok = await saveState();
+  if(!ok){
+    state = previous;
+    alert('The account deletion could not be synchronized. No deletion was kept.');
+  }
   render();
 }
 
 /* ---------------- Transactions ---------------- */
 
+function compareTransactions(a, b){
+  if(a.date !== b.date) return a.date > b.date ? 1 : -1;
+  const ac = Number.isFinite(a.createdAt) ? a.createdAt : Number.POSITIVE_INFINITY;
+  const bc = Number.isFinite(b.createdAt) ? b.createdAt : Number.POSITIVE_INFINITY;
+  if(ac !== bc) return ac - bc;
+  // Deterministic tie-breaker for same-day transactions created on the same
+  // millisecond or for legacy rows without createdAt.
+  return String(a.id).localeCompare(String(b.id));
+}
+
 function txFor(section, accountId, subLedger){
   return state.transactions
     .filter(t => t.section === section && (section === 'engineer' || t.accountId === accountId) && (section !== 'client' || t.subLedger === subLedger))
-    .sort((a,b) => {
-      if(a.date !== b.date) return a.date > b.date ? 1 : -1;
-      if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt){
-        return a.createdAt - b.createdAt;
-      }
-      return 0; // preserve insertion order for same-day legacy/identical timestamps
-    });
+    .sort(compareTransactions);
 }
 
 function totalsFromTransactions(tx){
-  let credit = 0, debit = 0;
-  tx.forEach(t => { if(t.type === 'Credit') credit += t.amount; else debit += t.amount; });
-  return { credit, debit, balance: credit - debit };
+  let creditPaise = 0, debitPaise = 0;
+  tx.forEach(t => {
+    const paise = toPaise(t.amount);
+    if(t.type === 'Credit') creditPaise = addPaiseSafe(creditPaise, paise);
+    else debitPaise = addPaiseSafe(debitPaise, paise);
+  });
+  const balancePaise = creditPaise - debitPaise;
+  if(!Number.isSafeInteger(balancePaise)) throw new Error('Financial balance is outside the supported range.');
+  return { credit:fromPaise(creditPaise), debit:fromPaise(debitPaise), balance:fromPaise(balancePaise) };
 }
 
 function totalsFor(section, accountId, subLedger){
@@ -1111,22 +1405,39 @@ function filteredTransactions(tx, filter){
   return filter === 'all' ? tx.slice() : tx.filter(t => t.date === filter);
 }
 
-function fmtSigned(n){
-  return n < 0 ? '-₹' + Math.abs(Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(n);
-}
-
 function netDisplay(totals){
   if(totals.balance > 0) return { label:'Net Credit', value:fmt(totals.balance), className:'pos' };
   if(totals.balance < 0) return { label:'Net Debit', value:fmt(Math.abs(totals.balance)), className:'neg' };
   return { label:'Net', value:fmt(0), className:'' };
 }
 
-// Returns the closing balance after all transactions dated on or before `date`.
-// Daily Credit/Debit figures remain the totals for that date; the closing
-// balance carries forward the previous dates, which is what the date-group
-// header should show as its "Net balance".
 function totalsThroughDate(tx, date){
   return totalsFromTransactions(tx.filter(t => t.date <= date));
+}
+function totalsBeforeDate(tx, date){
+  return totalsFromTransactions(tx.filter(t => t.date < date));
+}
+function openingBalanceBeforeDate(tx, date){
+  return totalsBeforeDate(tx, date).balance;
+}
+
+function ledgerPeriodMetrics(tx, filter){
+  const ordered = sortTransactions(tx);
+  const visible = filteredTransactions(ordered, filter);
+  const period = totalsFromTransactions(visible);
+  const opening = filter === 'all' ? 0 : openingBalanceBeforeDate(ordered, filter);
+  const closingPaise = filter === 'all'
+    ? toPaise(period.balance)
+    : addPaiseSafe(toPaise(opening), toPaise(period.balance));
+  return { visible, period, opening, closing:fromPaise(closingPaise) };
+}
+
+function ledgerDateMetrics(tx, date){
+  const ordered = sortTransactions(tx);
+  const daily = totalsFromTransactions(ordered.filter(t => t.date === date));
+  const opening = openingBalanceBeforeDate(ordered, date);
+  const closing = fromPaise(addPaiseSafe(toPaise(opening), toPaise(daily.balance)));
+  return { daily, opening, closing };
 }
 
 function closingBalanceDisplay(balance){
@@ -1136,6 +1447,7 @@ function closingBalanceDisplay(balance){
     className: balance > 0 ? 'pos' : (balance < 0 ? 'neg' : '')
   };
 }
+
 
 function dateGroupKey(prefix, section, accountId, subLedger, date){
   return [prefix, section || '', accountId || '', subLedger || '', date].join('|');
@@ -1150,115 +1462,153 @@ function setAccountDatesExpanded(section, accountId, subLedger, open){
 }
 
 function overallTotals(){
-  // Only count the entry you actually typed (not the auto-created linked
-  // copies) so one real purchase isn't counted multiple times in the
-  // business-wide total. Each individual account's own page still shows
-  // every entry that belongs to it, including linked copies.
-  let credit = 0, debit = 0;
-  state.transactions.forEach(t => {
-    if(t.auto) return;
-    if(t.type === 'Credit') credit += t.amount; else debit += t.amount;
-  });
-  return { credit, debit, balance: credit - debit };
+  // Count only real/typed transactions. Automatic mirrors are ledger copies,
+  // not additional business cash movements.
+  return totalsFromTransactions(state.transactions.filter(t => !t.auto));
 }
+
 function sectionGrandTotal(section){
-  let credit = 0, debit = 0;
+  let creditPaise = 0, debitPaise = 0;
   if(section === 'client'){
     accountsFor('client').forEach(a => {
       const cs = totalsFor('client', a.id, 'client');
       const es = totalsFor('client', a.id, 'project');
-      credit += cs.credit + es.credit;
-      debit += cs.debit + es.debit;
+      creditPaise = addPaiseSafe(creditPaise, addPaiseSafe(toPaise(cs.credit), toPaise(es.credit)));
+      debitPaise = addPaiseSafe(debitPaise, addPaiseSafe(toPaise(cs.debit), toPaise(es.debit)));
     });
-  } else {
+  }else{
     accountsFor(section).forEach(a => {
       const t = totalsFor(section, a.id, null);
-      credit += t.credit; debit += t.debit;
+      creditPaise = addPaiseSafe(creditPaise, toPaise(t.credit));
+      debitPaise = addPaiseSafe(debitPaise, toPaise(t.debit));
     });
   }
-  return { credit, debit, balance: credit - debit };
+  const balancePaise = creditPaise - debitPaise;
+  if(!Number.isSafeInteger(balancePaise)) throw new Error('Section balance is outside the supported range.');
+  return { credit:fromPaise(creditPaise), debit:fromPaise(debitPaise), balance:fromPaise(balancePaise) };
+}
+
+function readEntryAmount(inputId, label){
+  const raw = String(document.getElementById(inputId)?.value ?? '').trim();
+  if(raw === '') return null;
+  const value = Number(raw);
+  if(!Number.isFinite(value) || value <= 0) throw new Error(`${label} amount must be a valid number greater than zero.`);
+  return normalizeMoney(value);
+}
+
+function ensureAccountExists(section, accountId, label){
+  if(!accountId) return;
+  const exists = accountsFor(section).some(a => a.id === accountId);
+  if(!exists) throw new Error(`The selected ${label} account no longer exists.`);
 }
 
 async function saveDailyEntry(){
   if(entrySaveInProgress) return;
+  const previousState = cloneState(state);
   entrySaveInProgress = true;
   const saveBtn = document.getElementById('saveEntriesBtn');
   if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
   try{
     const date = document.getElementById('de_date').value || todayStr();
+    if(!isValidDateString(date)) throw new Error('Please enter a valid date.');
+
+    const clientSel = document.getElementById('de_client_account').value;
+    const sharedClientId = clientSel ? clientSel.split(':')[0] : '';
+    const sharedClientSub = clientSel ? clientSel.split(':')[1] : '';
+    ensureAccountExists('client', sharedClientId, 'client');
+    if(sharedClientId && !['client','project'].includes(sharedClientSub)) throw new Error('The selected client ledger is invalid.');
+
+    const labourAcc = document.getElementById('de_labour_account').value;
+    const materialAcc = document.getElementById('de_material_account').value;
+    const supplierAcc = document.getElementById('de_supplier_account').value;
+    const linkSupplier = document.getElementById('de_material_link_supplier').value;
+    ensureAccountExists('labour', labourAcc, 'labour');
+    ensureAccountExists('material', materialAcc, 'material');
+    ensureAccountExists('supplier', supplierAcc, 'supplier');
+    ensureAccountExists('supplier', linkSupplier, 'supplier');
+
+    // Validate every amount before mutating state so an invalid field can never
+    // leave a partially-created batch in memory.
+    const clientAmt = readEntryAmount('de_client_amount', 'Client');
+    const labourAmt = readEntryAmount('de_labour_amount', 'Labour');
+    const materialAmt = readEntryAmount('de_material_amount', 'Material');
+    const supplierAmt = readEntryAmount('de_supplier_amount', 'Supplier');
+    const engineerAmt = readEntryAmount('de_engineer_amount', 'Engineer');
+
+    // Never silently discard a typed amount just because its account selector
+    // was left blank. Every entered financial amount must have an explicit
+    // destination ledger, or the entire save is blocked before state mutation.
+    if(clientAmt !== null && !clientSel) throw new Error('Select a client account before entering a Client amount.');
+    if(labourAmt !== null && !labourAcc) throw new Error('Select a labour account before entering a Labour amount.');
+    if(materialAmt !== null && !materialAcc) throw new Error('Select a material account before entering a Material amount.');
+    if(supplierAmt !== null && !supplierAcc) throw new Error('Select a supplier account before entering a Supplier amount.');
+    if(linkSupplier && materialAmt === null) throw new Error('A supplier can only be linked when a Material amount is entered.');
+
+    const sameSupplierPurchase = linkSupplier && supplierAcc && linkSupplier === supplierAcc &&
+      materialAmt !== null && supplierAmt !== null &&
+      toPaise(materialAmt) === toPaise(supplierAmt) && pendingMaterialType === pendingSupplierType;
+    if(sameSupplierPurchase){
+      const proceed = confirm('This save records the same supplier amount twice: once as a Material purchase linked to the supplier, and once as a separate Supplier entry.\n\nContinue anyway?');
+      if(!proceed) return;
+    }
+
     let savedCount = 0;
     let createdAt = Date.now();
 
-    // The client picked at the top of the page (if any) is the shared context for
-    // this whole save — any Labour/Material/Supplier entries below automatically
-    // attribute their cost to that client's project. We only need the client's
-    // id here, not which of their two ledgers was chosen for the direct entry.
-    const clientSel = document.getElementById('de_client_account').value;
-    const sharedClientId = clientSel ? clientSel.split(':')[0] : '';
-
-    // --- CLIENT block (direct entry into whichever of the two ledgers was picked) ---
-    const clientAmt = parseFloat(document.getElementById('de_client_amount').value);
-    if(clientSel && clientAmt > 0){
+    // --- CLIENT block (direct entry into whichever ledger was selected) ---
+    if(clientSel && clientAmt !== null){
       const [cid, csub] = clientSel.split(':');
       state.transactions.push({
         id: uid('t'), date, section:'client', accountId:cid, subLedger:csub,
-        type: pendingClientType, amount: clientAmt, notes: document.getElementById('de_client_notes').value.trim(),
-        linkGroupId: uid('lg'), auto:false, createdAt: createdAt++
+        type: pendingClientType, amount:clientAmt, notes:document.getElementById('de_client_notes').value.trim(),
+        linkGroupId:uid('lg'), auto:false, createdAt:createdAt++
       });
       savedCount++;
     }
 
     // --- LABOUR block ---
-    const labourAcc = document.getElementById('de_labour_account').value;
-    const labourAmt = parseFloat(document.getElementById('de_labour_amount').value);
-    if(labourAcc && labourAmt > 0){
+    if(labourAcc && labourAmt !== null){
       const lg = uid('lg');
       const notes = document.getElementById('de_labour_notes').value.trim();
-      state.transactions.push({ id: uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
-      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes: notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false, createdAt:createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes:notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       if(sharedClientId){
-        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+        state.transactions.push({ id:uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes:notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       }
       savedCount++;
     }
 
     // --- MATERIAL block ---
-    const materialAcc = document.getElementById('de_material_account').value;
-    const materialAmt = parseFloat(document.getElementById('de_material_amount').value);
-    if(materialAcc && materialAmt > 0){
+    if(materialAcc && materialAmt !== null){
       const lg = uid('lg');
       const notes = document.getElementById('de_material_notes').value.trim();
-      state.transactions.push({ id: uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
-      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false, createdAt:createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes:notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       if(sharedClientId){
-        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+        state.transactions.push({ id:uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes:notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       }
-      const linkSupplier = document.getElementById('de_material_link_supplier').value;
       if(linkSupplier){
-        state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:linkSupplier, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+        state.transactions.push({ id:uid('t'), date, section:'supplier', accountId:linkSupplier, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes:notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       }
       savedCount++;
     }
 
     // --- SUPPLIER block ---
-    const supplierAcc = document.getElementById('de_supplier_account').value;
-    const supplierAmt = parseFloat(document.getElementById('de_supplier_amount').value);
-    if(supplierAcc && supplierAmt > 0){
+    if(supplierAcc && supplierAmt !== null){
       const lg = uid('lg');
       const notes = document.getElementById('de_supplier_notes').value.trim();
-      state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false, createdAt: createdAt++ });
-      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes: notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false, createdAt:createdAt++ });
+      state.transactions.push({ id:uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes:notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       if(sharedClientId){
-        state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt: createdAt++ });
+        state.transactions.push({ id:uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes:notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true, createdAt:createdAt++ });
       }
       savedCount++;
     }
 
-    // --- ENGINEER block (direct personal/office expense, not tied to a project) ---
-    const engineerAmt = parseFloat(document.getElementById('de_engineer_amount').value);
-    if(engineerAmt > 0){
-      state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingEngineerType, amount:engineerAmt, notes: document.getElementById('de_engineer_notes').value.trim(), linkGroupId: uid('lg'), auto:false, createdAt: createdAt++ });
+    // --- ENGINEER block ---
+    if(engineerAmt !== null){
+      state.transactions.push({ id:uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingEngineerType, amount:engineerAmt, notes:document.getElementById('de_engineer_notes').value.trim(), linkGroupId:uid('lg'), auto:false, createdAt:createdAt++ });
       savedCount++;
     }
 
@@ -1269,14 +1619,20 @@ async function saveDailyEntry(){
 
     const ok = await saveState();
     if(!ok){
-      alert('The entries were created locally, but could not be saved to Firebase. Check your internet connection and try again.');
+      state = previousState;
+      render();
+      alert('The entries could not be saved to Firebase. No entries were added. Please fix the connection and try again.');
       return;
     }
 
     presetAccount = null;
     alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.' + (sharedClientId ? ' Linked to ' + accountName('client', sharedClientId) + "'s project." : ''));
     render();
-  } finally {
+  }catch(e){
+    state = previousState;
+    render();
+    alert(e?.message || 'The entries could not be saved. No entries were added.');
+  }finally{
     entrySaveInProgress = false;
     const btn = document.getElementById('saveEntriesBtn');
     if(btn){ btn.disabled = false; btn.textContent = 'Save entries'; }
@@ -1287,12 +1643,12 @@ async function deleteTransaction(id){
   const tx = state.transactions.find(t => t.id === id);
   if(!tx) return;
   const siblings = state.transactions.filter(t => t.linkGroupId && t.linkGroupId === tx.linkGroupId && t.id !== tx.id);
+  const previous = cloneState(state);
 
   if(!tx.auto && siblings.length > 0){
     const names = siblings.map(s => accountLabel(s.section, s.accountId, s.subLedger)).join(', ');
     const ok = confirm(`This is the original transaction and it is linked to: ${names}.\n\nDeleting the original will also remove its automatic mirror entries.\n\nContinue?`);
     if(!ok) return;
-    // Never leave automatic mirrors without their source transaction.
     state.transactions = state.transactions.filter(t => t.linkGroupId !== tx.linkGroupId);
   }else if(tx.auto && siblings.length > 0){
     const deleteAll = confirm(`This linked copy is also recorded in: ${siblings.map(s => accountLabel(s.section, s.accountId, s.subLedger)).join(', ')}.\n\nOK = delete the original transaction and every linked copy\nCancel = remove only this linked copy`);
@@ -1308,7 +1664,10 @@ async function deleteTransaction(id){
   }
 
   const ok = await saveState();
-  if(!ok) alert('The deletion was made on this screen but could not be synchronized to Firebase. Please check your connection and try again.');
+  if(!ok){
+    state = previous;
+    alert('The deletion could not be synchronized. No deletion was kept.');
+  }
   render();
 }
 
@@ -1328,12 +1687,37 @@ function goTo(view){
   render();
 }
 function setDateFilter(value){
+  if(value !== 'all' && !isValidDateString(value)) return;
   dateFilter = value;
   render();
 }
 
 function render(){
   if(!loaded) return;
+  if(dataIntegrityBlocked){
+    document.getElementById('statCredit').textContent = '—';
+    document.getElementById('statDebit').textContent = '—';
+    document.getElementById('statBalance').textContent = '—';
+    const safeSidebar = document.getElementById('sidebar');
+    if(safeSidebar){
+      safeSidebar.innerHTML = `<div class="integrity-sidebar"><strong>Ledger locked</strong><span>Safety validation failed.</span></div>`;
+    }
+    const safeName = document.getElementById('excelNameBox');
+    const safeFormula = document.getElementById('excelFormulaValue');
+    const safeView = document.getElementById('excelStatusView');
+    const safeFilter = document.getElementById('excelStatusFilter');
+    if(safeName) safeName.textContent = 'Locked';
+    if(safeFormula) safeFormula.textContent = 'Ledger safety check blocked normal editing';
+    if(safeView) safeView.textContent = 'Locked · data validation failed';
+    if(safeFilter) safeFilter.textContent = 'No edits allowed';
+    document.getElementById('mainContent').innerHTML = `
+      <div class="integrity-block">
+        <div class="integrity-title">Ledger safety check blocked normal editing</div>
+        <p>${escapeHtml(dataIntegrityMessage || 'The stored ledger data could not be validated safely.')}</p>
+        <p>No existing remote data has been replaced. Resolve the data issue or restore a verified JSON backup before continuing.</p>
+      </div>`;
+    return;
+  }
   const overall = overallTotals();
   document.getElementById('statCredit').textContent = fmt(overall.credit);
   document.getElementById('statDebit').textContent = fmt(overall.debit);
@@ -1569,15 +1953,17 @@ function renderDailyEntry(){
 function renderAccountPage(section, accountId, subLedger){
   if(section === 'client' && !subLedger) subLedger = 'project';
   const allTx = txFor(section, accountId, subLedger);
-  const visibleTx = filteredTransactions(allTx, dateFilter);
+  const periodMetrics = ledgerPeriodMetrics(allTx, dateFilter);
+  const visibleTx = periodMetrics.visible;
   const allTotals = totalsFromTransactions(allTx);
-  const displayTotals = totalsFromTransactions(visibleTx);
+  const displayTotals = periodMetrics.period;
+  const isFiltered = dateFilter !== 'all';
+  const closingBalance = periodMetrics.closing;
   const title = section === 'engineer' ? 'Engineer' : (section === 'client' ? clientFlatName(accountId, subLedger) : accountName(section, accountId));
   const subtitle = section === 'client' ? subLedgerLabel(subLedger) + ' account' : '';
   const showForClient = (section === 'labour' || section === 'material' || section === 'supplier');
   const showSource = (section === 'engineer');
-  const isFiltered = dateFilter !== 'all';
-  const balanceDisplay = netDisplay(displayTotals);
+  const balanceDisplay = closingBalanceDisplay(closingBalance);
 
   const uniqueDates = [...new Set(allTx.map(t => t.date))].sort().reverse();
   const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${formatDisplayDate(todayStr())})</option>`
@@ -1588,16 +1974,16 @@ function renderAccountPage(section, accountId, subLedger){
   const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
 
   const renderDateGroup = date => {
-    const tx = visibleTx.filter(t => t.date === date);
-    const totals = totalsFromTransactions(tx);
-    const closingTotals = totalsThroughDate(allTx, date);
-    const net = closingBalanceDisplay(closingTotals.balance);
+    const tx = visibleTx.filter(t => t.date === date).sort(compareTransactions);
+    const metrics = ledgerDateMetrics(allTx, date);
+    const totals = metrics.daily;
+    let runningPaise = toPaise(metrics.opening);
+    const closing = closingBalanceDisplay(metrics.closing);
     const key = dateGroupKey('account', section, accountId, subLedger, date);
     const isOpen = accountDateExpanded[key] !== false;
     const countLabel = `${tx.length} transaction${tx.length === 1 ? '' : 's'}`;
-    let runBal = 0;
     const rows = tx.map(t => {
-      runBal += (t.type === 'Credit' ? t.amount : -t.amount);
+      runningPaise = addPaiseSafe(runningPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
       const linkedTag = t.auto
         ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
         : (t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
@@ -1610,7 +1996,7 @@ function renderAccountPage(section, accountId, subLedger){
         <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
         ${forClientCell}${sourceCell}
         <td>${escapeHtml(t.notes || '')}</td>
-        <td class="num">${fmtSigned(runBal)}</td>
+        <td class="num">${fmtSigned(fromPaise(runningPaise))}</td>
         <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${escapeJs(t.id)}')">&times;</button></td>
       </tr>`;
     }).join('');
@@ -1622,7 +2008,8 @@ function renderAccountPage(section, accountId, subLedger){
         <span class="account-date-totals">
           <span class="account-date-credit">Credit ${fmt(totals.credit)}</span>
           <span class="account-date-debit">Debit ${fmt(totals.debit)}</span>
-          <span class="account-date-${net.className ? net.className === 'pos' ? 'net-credit' : 'net-debit' : 'net-zero'}" title="Closing balance through this date">${net.label} ${net.value}</span>
+          <span class="account-date-${totals.balance >= 0 ? 'net-credit' : 'net-debit'}" title="Net movement for this date">Daily net ${fmtSigned(totals.balance)}</span>
+          <span class="account-date-${closing.className ? closing.className === 'pos' ? 'net-credit' : 'net-debit' : 'net-zero'}" title="Closing balance through this date">Closing ${closing.value}</span>
         </span>
         <span class="account-date-actions" onclick="event.preventDefault(); event.stopPropagation();">
           <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportAccountDateExcel('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}','${escapeJs(date)}')">XLSX</button>
@@ -1642,9 +2029,9 @@ function renderAccountPage(section, accountId, subLedger){
     ? dates.map(renderDateGroup).join('')
     : `<div class="account-date-empty">No entries ${isFiltered ? 'for the selected date.' : 'logged yet.'}</div>`;
 
-  const periodNote = isFiltered && allTx.length > visibleTx.length
-    ? `Showing ${dateFilter === todayStr() ? 'today' : formatDisplayDate(dateFilter)}. Period totals are based only on the visible entries. Current all-date balance: <strong>${fmtSigned(allTotals.balance)}</strong>.`
-    : (isFiltered ? `Showing ${dateFilter === todayStr() ? 'today' : formatDisplayDate(dateFilter)}.` : 'Showing the complete ledger history.');
+  const periodNote = isFiltered
+    ? `Showing ${dateFilter === todayStr() ? 'today' : formatDisplayDate(dateFilter)}. Period credit/debit use only the visible entries. Closing balance carries forward all prior ledger activity through the selected date.`
+    : 'Showing the complete ledger history. Running balances are cumulative from the first recorded transaction.';
 
   document.getElementById('mainContent').innerHTML = `
     <div class="page-header"><h1>${escapeHtml(title)}</h1></div>
@@ -1652,7 +2039,7 @@ function renderAccountPage(section, accountId, subLedger){
     <div class="page-stats">
       <div class="page-stat credit"><div class="label">${isFiltered ? 'PERIOD CREDIT' : 'TOTAL CREDIT'}</div><div class="value">${fmt(displayTotals.credit)}</div></div>
       <div class="page-stat debit"><div class="label">${isFiltered ? 'PERIOD DEBIT' : 'TOTAL DEBIT'}</div><div class="value">${fmt(displayTotals.debit)}</div></div>
-      <div class="page-stat balance"><div class="label">${isFiltered ? balanceDisplay.label.toUpperCase() : (section==='client' ? 'NET POSITION' : 'NET BALANCE')}</div><div class="value ${balanceDisplay.className}">${balanceDisplay.value}</div></div>
+      <div class="page-stat balance"><div class="label">CLOSING BALANCE</div><div class="value ${balanceDisplay.className}">${balanceDisplay.value}</div></div>
     </div>
     <div class="period-note">${periodNote}</div>
     <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px;">
@@ -1675,11 +2062,13 @@ function renderAccountPage(section, accountId, subLedger){
 
 function categoryBreakdownForFiltered(section, accountId, subLedger, filter){
   const tx = filteredTransactions(txFor(section, accountId, subLedger), filter).filter(t => t.type === 'Debit');
-  const map = {};
+  const mapPaise = {};
   tx.forEach(t => {
     const label = t.auto ? (primarySiblingLabelFor(t) || 'Other') : 'Direct entry (not linked)';
-    map[label] = (map[label] || 0) + t.amount;
+    mapPaise[label] = addPaiseSafe(mapPaise[label] || 0, toPaise(t.amount));
   });
+  const map = {};
+  Object.keys(mapPaise).forEach(label => { map[label] = fromPaise(mapPaise[label]); });
   return map;
 }
 
@@ -1724,7 +2113,7 @@ function renderSummary(){
   accountsFor('client').forEach(c => {
     const cs = totalsFor('client', c.id, 'client');
     const es = totalsFor('client', c.id, 'project');
-    const net = cs.balance + es.balance;
+    const net = fromPaise(addPaiseSafe(toPaise(cs.balance), toPaise(es.balance)));
     clientRows += `<tr>
       <td><a href="javascript:void(0)" onclick="goTo('client:${c.id}:client')" style="color:var(--ink); text-decoration:none; border-bottom:1px dotted var(--line-strong);">${escapeHtml(c.name)}</a></td>
       <td class="num">${fmt(cs.balance)}</td>
@@ -1818,11 +2207,14 @@ function exportDateExcel(date){
   const tx = datePrimaryTransactions(date);
   const totals = totalsFromTransactions(tx);
   const closing = totalsThroughDate(sortTransactions(state.transactions.filter(t => !t.auto)), date);
+  const opening = totalsBeforeDate(sortTransactions(state.transactions.filter(t => !t.auto)), date);
   const rows = [
     ['Date', date],
     ['Credit (date)', totals.credit],
     ['Debit (date)', totals.debit],
-    ['Net balance (through date)', closing.balance],
+    ['Daily net movement', totals.balance],
+    ['Opening business balance', opening.balance],
+    ['Closing business balance', closing.balance],
     [],
     ['Date','Section','Account','Type','Amount','Notes','Also Recorded In']
   ];
@@ -1851,7 +2243,8 @@ function printDateReport(date){
     <div style="display:flex; gap:24px; margin-bottom:16px; flex-wrap:wrap;">
       <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
       <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">DAILY NET</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(totals.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">CLOSING BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
     </div>
     <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="7">No entries for this date.</td></tr>'}</tbody></table>`;
@@ -1861,28 +2254,27 @@ function printDateReport(date){
 
 function exportAccountDateExcel(section, accountId, subLedger, date){
   const wb = XLSX.utils.book_new();
-  const tx = datePrimaryTransactions(date).filter(t =>
-    t.section === section &&
-    (section === 'engineer' || t.accountId === accountId) &&
-    (section !== 'client' || t.subLedger === subLedger)
-  );
+  const allTx = txFor(section, accountId, subLedger);
+  const tx = allTx.filter(t => t.date === date);
   const totals = totalsFromTransactions(tx);
-  const allAccountTx = txFor(section, accountId, subLedger);
-  const closing = totalsThroughDate(allAccountTx, date);
+  const opening = openingBalanceBeforeDate(allTx, date);
+  const closing = totalsThroughDate(allTx, date);
   const title = section === 'engineer' ? 'Engineer' : (section === 'client' ? clientFlatName(accountId, subLedger) : accountName(section, accountId));
   const rows = [
     ['Account', title],
     ['Date', date],
     ['Credit (date)', totals.credit],
     ['Debit (date)', totals.debit],
-    ['Net balance (through date)', closing.balance],
+    ['Daily net movement', totals.balance],
+    ['Opening balance', opening],
+    ['Closing balance', closing.balance],
     [],
     ['Date','Type','Amount','Notes','Running Balance']
   ];
-  let bal = 0;
+  let balPaise = toPaise(opening);
   sortTransactions(tx).forEach(t => {
-    bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    rows.push([t.date, t.type, t.amount, t.notes, bal]);
+    balPaise = addPaiseSafe(balPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
+    rows.push([t.date, t.type, t.amount, t.notes, fromPaise(balPaise)]);
   });
   addRowsToWorksheet(wb, rows, title + ' - ' + date);
   XLSX.writeFile(wb, safeSheetName(title) + '_' + date + '.xlsx');
@@ -1892,18 +2284,20 @@ function printAccountDateReport(section, accountId, subLedger, date){
   const allTx = txFor(section, accountId, subLedger);
   const tx = allTx.filter(t => t.date === date);
   const totals = totalsFromTransactions(tx);
+  const opening = openingBalanceBeforeDate(allTx, date);
   const closing = totalsThroughDate(allTx, date);
   const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
-  let bal = 0, rows = '';
+  let balPaise = toPaise(opening), rows = '';
   sortTransactions(tx).forEach(t => {
-    bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(t.type)}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(bal)}</td></tr>`;
+    balPaise = addPaiseSafe(balPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
+    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(t.type)}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(fromPaise(balPaise))}</td></tr>`;
   });
   const body = buildLetterhead('Statement — ' + title + ' — ' + formatDisplayDate(date)) + `
     <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
       <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
       <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">DAILY NET</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(totals.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">CLOSING BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
     </div>
     <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Running balance</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5">No entries for this date.</td></tr>'}</tbody></table>`;
@@ -1922,10 +2316,7 @@ function renderAllEntries(){
   const dates = [...new Set(shown.map(t => t.date))].sort().reverse();
 
   const renderDateGroup = date => {
-    const tx = shown.filter(t => t.date === date).sort((a,b) => {
-      if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
-      return 0;
-    });
+    const tx = shown.filter(t => t.date === date).sort((a,b) => compareTransactions(b,a));
     const totals = totalsFromTransactions(tx);
     const closingTotals = totalsThroughDate(allPrimary, date);
     const net = closingBalanceDisplay(closingTotals.balance);
@@ -1954,7 +2345,8 @@ function renderAllEntries(){
         <span class="all-entry-date-totals">
           <span class="all-entry-date-credit">Credit ${fmt(totals.credit)}</span>
           <span class="all-entry-date-debit">Debit ${fmt(totals.debit)}</span>
-          <span class="all-entry-date-net ${netClass}" title="Closing balance through this date" style="color:${netClass==='pos'?'var(--credit)':netClass==='neg'?'var(--debit)':'var(--ink)'}">${net.label} ${net.value}</span>
+          <span class="all-entry-date-net ${totals.balance >= 0 ? 'pos' : 'neg'}" title="Net movement for this date">Daily net ${fmtSigned(totals.balance)}</span>
+          <span class="all-entry-date-net ${netClass}" title="Closing balance through this date">Closing ${net.value}</span>
         </span>
         <span class="all-entry-date-actions" onclick="event.preventDefault(); event.stopPropagation();">
           <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportDateExcel('${escapeJs(date)}')">XLSX</button>
@@ -2025,6 +2417,7 @@ function renderProfile(){
 }
 
 async function saveProfile(){
+  const previous = cloneState(state);
   state.profile = {
     name: document.getElementById('p_name').value.trim(),
     business: document.getElementById('p_business').value.trim(),
@@ -2032,7 +2425,12 @@ async function saveProfile(){
     address: document.getElementById('p_address').value.trim()
   };
   const ok = await saveState();
-  alert(ok ? 'Profile saved.' : 'Profile changed locally but could not be synchronized to Firebase. Please check your connection.');
+  if(!ok){
+    state = previous;
+    alert('Profile could not be synchronized. No profile change was kept.');
+  }else{
+    alert('Profile saved.');
+  }
   render();
 }
 
@@ -2041,65 +2439,9 @@ function downloadBackup(){
 }
 function normalizeBackup(parsed){
   if(!parsed || typeof parsed !== 'object' || !parsed.accounts || !Array.isArray(parsed.transactions)){
-    throw new Error('Backup must contain accounts and transactions arrays.');
+    throw new Error('Backup must contain accounts and transactions.');
   }
-
-  const sections = ['labour','material','supplier','client'];
-  const accounts = {};
-  const accountIds = new Set();
-
-  sections.forEach(section => {
-    if(!Array.isArray(parsed.accounts[section])) throw new Error(`Invalid ${section} accounts.`);
-    accounts[section] = parsed.accounts[section].map(a => {
-      if(!a || typeof a !== 'object' || typeof a.id !== 'string' || !a.id || typeof a.name !== 'string') {
-        throw new Error(`Invalid ${section} account record.`);
-      }
-      if(accountIds.has(a.id)) throw new Error('Duplicate account ID in backup.');
-      accountIds.add(a.id);
-      return { id:a.id, name:a.name.trim() };
-    }).filter(a => a.name);
-  });
-
-  const txIds = new Set();
-  const transactions = parsed.transactions.map(t => {
-    if(!t || typeof t !== 'object') throw new Error('Invalid transaction record.');
-    if(typeof t.id !== 'string' || !t.id || txIds.has(t.id)) throw new Error('Invalid or duplicate transaction ID.');
-    txIds.add(t.id);
-    if(typeof t.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) throw new Error(`Invalid transaction date: ${t.id}`);
-    if(!['labour','material','supplier','client','engineer'].includes(t.section)) throw new Error(`Invalid transaction section: ${t.id}`);
-    if(!['Credit','Debit'].includes(t.type)) throw new Error(`Invalid transaction type: ${t.id}`);
-    if(typeof t.amount !== 'number' || !Number.isFinite(t.amount) || t.amount <= 0) throw new Error(`Invalid transaction amount: ${t.id}`);
-    if(typeof t.notes !== 'string' && t.notes !== undefined && t.notes !== null) throw new Error(`Invalid transaction notes: ${t.id}`);
-    if(t.section === 'engineer'){
-      if(t.accountId !== null && t.accountId !== undefined && t.accountId !== '') throw new Error(`Engineer transaction must not have an accountId: ${t.id}`);
-    }else{
-      if(typeof t.accountId !== 'string' || !accountIds.has(t.accountId)) throw new Error(`Transaction references a missing account: ${t.id}`);
-    }
-    if(t.section === 'client' && !['client','project'].includes(t.subLedger)) throw new Error(`Invalid client sub-ledger: ${t.id}`);
-    const linkGroupId = typeof t.linkGroupId === 'string' && t.linkGroupId ? t.linkGroupId : uid('lg');
-    return {
-      id:t.id,
-      date:t.date,
-      section:t.section,
-      accountId:t.section === 'engineer' ? null : t.accountId,
-      subLedger:t.section === 'client' ? t.subLedger : null,
-      type:t.type,
-      amount:t.amount,
-      notes:t.notes || '',
-      linkGroupId,
-      auto:t.auto === true,
-      createdAt:Number.isFinite(t.createdAt) ? t.createdAt : null
-    };
-  });
-
-  const profile = parsed.profile && typeof parsed.profile === 'object' ? {
-    name: typeof parsed.profile.name === 'string' ? parsed.profile.name : '',
-    business: typeof parsed.profile.business === 'string' ? parsed.profile.business : '',
-    phone: typeof parsed.profile.phone === 'string' ? parsed.profile.phone : '',
-    address: typeof parsed.profile.address === 'string' ? parsed.profile.address : ''
-  } : defaultProfile();
-
-  return { accounts, transactions, profile };
+  return normalizeStateShape(parsed);
 }
 
 function restoreBackup(event){
@@ -2110,10 +2452,18 @@ function restoreBackup(event){
     try{
       const parsed = JSON.parse(reader.result);
       const restored = normalizeBackup(parsed);
+      if(!currentUser || !db || navigator.onLine === false){
+        alert('Connect to Firebase before restoring a backup. For financial safety, backup restore is not allowed while offline.');
+        return;
+      }
+      if(pendingSavesByUid[currentUser.uid] > 0 || readOfflinePending(currentUser.uid)){
+        alert('Please wait for pending ledger changes to finish syncing before restoring a backup.');
+        return;
+      }
       if(!confirm('This will replace all current data with the backup. Continue?')) return;
       const previous = state;
       state = restored;
-      const ok = await saveState();
+      const ok = await saveState({replace:true});
       if(!ok){
         state = previous;
         render();
@@ -2156,7 +2506,7 @@ function printSummaryReport(){
   accountsFor('client').forEach(c => {
     const cs = totalsFor('client', c.id, 'client');
     const es = totalsFor('client', c.id, 'project');
-    clientRows += `<tr><td>${escapeHtml(c.name)}</td><td class="num">${fmt(cs.balance)}</td><td class="num">${fmt(es.balance)}</td><td class="num">${fmt(cs.balance+es.balance)}</td></tr>`;
+    clientRows += `<tr><td>${escapeHtml(c.name)}</td><td class="num">${fmt(cs.balance)}</td><td class="num">${fmt(es.balance)}</td><td class="num">${fmt(fromPaise(addPaiseSafe(toPaise(cs.balance), toPaise(es.balance))))}</td></tr>`;
   });
   function secRows(section){
     return accountsFor(section).map(a => {
@@ -2197,7 +2547,16 @@ function printReport(type){
       rows += `<tr><td class="date">${t.date}</td><td>${escapeHtml(SECTION_LABELS[t.section])}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td style="font-size:11px;">${escapeHtml(links)}</td></tr>`;
     });
     const title = dateFilter === 'all' ? 'All Entries — Full Ledger' : 'All Entries — ' + formatDisplayDate(dateFilter);
+    const shownTotals = totalsFromTransactions(shown);
+    const businessAll = sortTransactions(state.transactions.filter(t => !t.auto));
+    const closing = dateFilter === 'all' ? shownTotals.balance : totalsThroughDate(businessAll, dateFilter).balance;
     const body = buildLetterhead(title) + `
+      <div style="display:flex; gap:24px; margin-bottom:16px; flex-wrap:wrap;">
+        <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(shownTotals.credit)}</div></div>
+        <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(shownTotals.debit)}</div></div>
+        <div><div style="font-size:10px; color:#777;">NET MOVEMENT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(shownTotals.balance)}</div></div>
+        <div><div style="font-size:10px; color:#777;">CLOSING BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing)}</div></div>
+      </div>
       <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6">No entries for this period.</td></tr>'}</tbody></table>`;
     document.getElementById('printArea').innerHTML = body;
@@ -2207,25 +2566,27 @@ function printReport(type){
 
 function printAccountReport(section, accountId, subLedger){
   const allTx = txFor(section, accountId, subLedger);
-  const tx = filteredTransactions(allTx, dateFilter);
-  const totals = totalsFromTransactions(tx);
+  const metrics = ledgerPeriodMetrics(allTx, dateFilter);
+  const tx = metrics.visible;
+  const totals = metrics.period;
+  const closing = metrics.closing;
   const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
-  const reportTitle = dateFilter === 'all' ? 'Statement — ' + title : 'Statement — ' + title + ' — ' + dateFilter;
-  const reportNet = netDisplay(totals);
-  let bal = 0, rows = '';
-  tx.forEach(t => {
-    bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(bal)}</td></tr>`;
-  });
+  const reportTitle = dateFilter === 'all' ? 'Statement — ' + title : 'Statement — ' + title + ' — ' + formatDisplayDate(dateFilter);
   const showBreakdown = (section === 'engineer' || (section === 'client' && subLedger === 'project'));
   const breakdown = showBreakdown ? (dateFilter === 'all' ? categoryBreakdownFor(section, accountId, subLedger) : categoryBreakdownForFiltered(section, accountId, subLedger, dateFilter)) : null;
+  let runningPaise = dateFilter === 'all' ? 0 : toPaise(openingBalanceBeforeDate(allTx, dateFilter));
+  let rows = '';
+  tx.forEach(t => {
+    runningPaise = addPaiseSafe(runningPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
+    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(t.type)}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(fromPaise(runningPaise))}</td></tr>`;
+  });
   const body = buildLetterhead(reportTitle) + `
     <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
       <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL CREDIT' : 'PERIOD CREDIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
       <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL DEBIT' : 'PERIOD DEBIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">${reportNet.label.toUpperCase()}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${reportNet.value}</div></div>
+      <div><div style="font-size:10px; color:#777;">CLOSING BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing)}</div></div>
     </div>
-    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px;">
+    <div style="display:flex; gap:24px; margin-bottom:18px; flex-wrap:wrap;">
       <div>${creditDebitChart(totals.credit, totals.debit, 100)}</div>
       ${showBreakdown ? `<div>${multiSliceChart(breakdown, 100)}</div>` : ''}
     </div>
@@ -2243,11 +2604,7 @@ function safeSheetName(label){
 }
 
 function sortTransactions(tx){
-  return tx.slice().sort((a,b)=> {
-    if(a.date !== b.date) return a.date > b.date ? 1 : -1;
-    if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-    return 0;
-  });
+  return tx.slice().sort(compareTransactions);
 }
 
 function addRowsToWorksheet(wb, rows, name){
@@ -2269,25 +2626,30 @@ function exportAllEntriesExcel(){
 function exportAccountExcel(section, accountId, subLedger){
   const wb = XLSX.utils.book_new();
   const allTx = txFor(section, accountId, subLedger);
-  const tx = filteredTransactions(allTx, dateFilter);
-  const totals = totalsFromTransactions(tx);
+  const metrics = ledgerPeriodMetrics(allTx, dateFilter);
+  const tx = metrics.visible;
+  const totals = metrics.period;
+  const closing = metrics.closing;
+  const opening = metrics.opening;
   const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' - ' + subLedgerLabel(subLedger) : '');
   const rows = [
     ['Account', title],
-    ['Period', dateFilter === 'all' ? 'All dates' : dateFilter],
+    ['Period', dateFilter === 'all' ? 'All dates' : formatDisplayDate(dateFilter)],
     ['Credit', totals.credit],
     ['Debit', totals.debit],
-    ['Net balance', totals.balance],
+    ['Daily/period net movement', totals.balance],
+    ['Opening balance', opening],
+    ['Closing balance', closing],
     [],
-    ['Date','Type','Amount','Notes', dateFilter === 'all' ? 'Running Balance' : 'Running Period Balance']
+    ['Date','Type','Amount','Notes', dateFilter === 'all' ? 'Running Balance' : 'Running Balance']
   ];
-  let bal = 0;
+  let balPaise = toPaise(opening);
   tx.forEach(t => {
-    bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    rows.push([t.date, t.type, t.amount, t.notes, bal]);
+    balPaise = addPaiseSafe(balPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
+    rows.push([t.date, t.type, t.amount, t.notes, fromPaise(balPaise)]);
   });
   addRowsToWorksheet(wb, rows, title);
-  XLSX.writeFile(wb, safeSheetName(title).replace(/\s+/g,'_') + '.xlsx');
+  XLSX.writeFile(wb, safeSheetName(title).replace(/\s+/g,'_') + (dateFilter === 'all' ? '' : '_' + dateFilter) + '.xlsx');
 }
 
 function exportExcel(){
@@ -2331,10 +2693,10 @@ function exportExcel(){
     }
     usedNames[finalName] = true;
     const rows = [['Date','Type','Amount','Notes','Running Balance']];
-    let bal = 0;
+    let balPaise = 0;
     txFor(section, accountId, subLedger).forEach(t => {
-      bal += (t.type === 'Credit' ? t.amount : -t.amount);
-      rows.push([t.date, t.type, t.amount, t.notes, bal]);
+      balPaise = addPaiseSafe(balPaise, t.type === 'Credit' ? toPaise(t.amount) : -toPaise(t.amount));
+      rows.push([t.date, t.type, t.amount, t.notes, fromPaise(balPaise)]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), finalName);
   }
@@ -2362,6 +2724,10 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 function escapeJs(s){ return String(s).replace(/'/g, "\\'"); }
+
+window.addEventListener('online', () => {
+  if(currentUser && db){ flushOfflinePending(currentUser.uid).catch(e => console.error(e)); }
+});
 
 /* ---------------- Boot ---------------- */
 
