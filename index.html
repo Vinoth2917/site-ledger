@@ -624,8 +624,14 @@ function saveDailyEntry(){
   const date = document.getElementById('de_date').value || todayStr();
   let savedCount = 0;
 
-  // --- CLIENT block (direct entry into either of that client's two ledgers) ---
+  // The client picked at the top of the page (if any) is the shared context for
+  // this whole save — any Labour/Material/Supplier entries below automatically
+  // attribute their cost to that client's project. We only need the client's
+  // id here, not which of their two ledgers was chosen for the direct entry.
   const clientSel = document.getElementById('de_client_account').value;
+  const sharedClientId = clientSel ? clientSel.split(':')[0] : '';
+
+  // --- CLIENT block (direct entry into whichever of the two ledgers was picked) ---
   const clientAmt = parseFloat(document.getElementById('de_client_amount').value);
   if(clientSel && clientAmt > 0){
     const [cid, csub] = clientSel.split(':');
@@ -645,9 +651,8 @@ function saveDailyEntry(){
     const notes = document.getElementById('de_labour_notes').value.trim();
     state.transactions.push({ id: uid('t'), date, section:'labour', accountId:labourAcc, subLedger:null, type:pendingLabourType, amount:labourAmt, notes, linkGroupId:lg, auto:false });
     state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingLabourType, amount:labourAmt, notes: notes || ('Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
-    const linkClient = document.getElementById('de_labour_link_client').value;
-    if(linkClient){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
+    if(sharedClientId){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingLabourType, amount:labourAmt, notes: notes || ('From Labour: ' + accountName('labour', labourAcc)), linkGroupId:lg, auto:true });
     }
     savedCount++;
   }
@@ -660,9 +665,8 @@ function saveDailyEntry(){
     const notes = document.getElementById('de_material_notes').value.trim();
     state.transactions.push({ id: uid('t'), date, section:'material', accountId:materialAcc, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes, linkGroupId:lg, auto:false });
     state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingMaterialType, amount:materialAmt, notes: notes || ('Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
-    const linkClient = document.getElementById('de_material_link_client').value;
-    if(linkClient){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
+    if(sharedClientId){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingMaterialType, amount:materialAmt, notes: notes || ('From Material: ' + accountName('material', materialAcc)), linkGroupId:lg, auto:true });
     }
     const linkSupplier = document.getElementById('de_material_link_supplier').value;
     if(linkSupplier){
@@ -679,9 +683,8 @@ function saveDailyEntry(){
     const notes = document.getElementById('de_supplier_notes').value.trim();
     state.transactions.push({ id: uid('t'), date, section:'supplier', accountId:supplierAcc, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes, linkGroupId:lg, auto:false });
     state.transactions.push({ id: uid('t'), date, section:'engineer', accountId:null, subLedger:null, type:pendingSupplierType, amount:supplierAmt, notes: notes || ('Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
-    const linkClient = document.getElementById('de_supplier_link_client').value;
-    if(linkClient){
-      state.transactions.push({ id: uid('t'), date, section:'client', accountId:linkClient, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
+    if(sharedClientId){
+      state.transactions.push({ id: uid('t'), date, section:'client', accountId:sharedClientId, subLedger:'project', type:pendingSupplierType, amount:supplierAmt, notes: notes || ('From Supplier: ' + accountName('supplier', supplierAcc)), linkGroupId:lg, auto:true });
     }
     savedCount++;
   }
@@ -696,7 +699,7 @@ function saveDailyEntry(){
   if(savedCount === 0){ alert('Enter an amount in at least one section.'); return; }
   saveState();
   presetAccount = null;
-  alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.');
+  alert(savedCount + ' entr' + (savedCount>1?'ies':'y') + ' saved.' + (sharedClientId ? ' Linked to ' + accountName('client', sharedClientId) + "'s project." : ''));
   render();
 }
 
@@ -859,13 +862,12 @@ function renderDailyEntry(){
   const labourOptions = accountsFor('labour').map(a => `<option value="${a.id}" ${a.id===presetLabour?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
   const materialOptions = accountsFor('material').map(a => `<option value="${a.id}" ${a.id===presetMaterial?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
   const supplierOptions = accountsFor('supplier').map(a => `<option value="${a.id}" ${a.id===presetSupplier?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
-  const clientLinkOptions = accountsFor('client').map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
 
-  function block(id, title, accountLabel, accountOptions, type, extraLinksHTML){
+  function block(id, title, accountLabel, accountOptions, type, extraHTML){
     return `
     <div class="entry-form" style="margin-bottom:20px;">
       <div style="font-family:'Zilla Slab', serif; font-weight:700; font-size:16px; margin-bottom:12px;">${title}</div>
-      <div class="row">
+      <div class="row" style="margin-bottom:${extraHTML?'0':'0'};">
         <div class="field" style="min-width:180px;">
           <label>${accountLabel}</label>
           <select id="de_${id}_account">
@@ -877,30 +879,15 @@ function renderDailyEntry(){
         <div class="field"><label>Amount</label><input type="number" id="de_${id}_amount" min="0" step="0.01" placeholder="0.00"></div>
         <div class="field" style="flex:1; min-width:180px;"><label>Notes</label><input type="text" id="de_${id}_notes" placeholder="Optional note"></div>
       </div>
-      ${extraLinksHTML || ''}
+      ${extraHTML || ''}
     </div>`;
   }
 
-  const labourLinks = `
-    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
-    <div class="link-box">
-      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT</div>
-      <div class="field"><select id="de_labour_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
-    </div>`;
-  const materialLinks = `
-    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
-    <div class="link-box">
-      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT / A SUPPLIER</div>
-      <div class="row" style="margin-bottom:0;">
-        <div class="field"><label>Client's project</label><select id="de_material_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
-        <div class="field"><label>Supplier</label><select id="de_material_link_supplier"><option value="">— None —</option>${supplierOptions}</select></div>
-      </div>
-    </div>`;
-  const supplierLinks = `
-    <p style="font-size:11.5px; color:var(--muted); margin:2px 0 8px;">ℹ Also recorded in your Engineer account automatically.</p>
-    <div class="link-box">
-      <div class="link-title">OPTIONAL — ALSO LINK TO A CLIENT'S PROJECT</div>
-      <div class="field"><select id="de_supplier_link_client"><option value="">— None —</option>${clientLinkOptions}</select></div>
+  const engineerNote = `<p style="font-size:11.5px; color:var(--muted); margin:10px 0 0;">ℹ Also recorded in your Engineer account automatically.</p>`;
+  const materialSupplierLink = `
+    <div class="link-box" style="margin-top:10px;">
+      <div class="link-title">OPTIONAL — ALSO LINK TO A SUPPLIER (for this material purchase)</div>
+      <div class="field"><select id="de_material_link_supplier"><option value="">— None —</option>${supplierOptions}</select></div>
     </div>`;
 
   document.getElementById('mainContent').innerHTML = `
@@ -911,9 +898,15 @@ function renderDailyEntry(){
     </div>
 
     ${block('client', 'Client', 'Client account', clientDropdownOptions, pendingClientType)}
-    ${block('labour', 'Labour', 'Labour type', labourOptions, pendingLabourType, labourLinks)}
-    ${block('material', 'Material', 'Material type', materialOptions, pendingMaterialType, materialLinks)}
-    ${block('supplier', 'Supplier', 'Supplier', supplierOptions, pendingSupplierType, supplierLinks)}
+    <p style="font-size:12px; color:var(--muted); margin:-14px 0 20px; max-width:640px;">
+      ℹ Pick a client above and it automatically links <strong>everything you fill in below</strong>
+      (Labour, Material, Supplier) to that client's project — no need to select it again in each section.
+      Leave it blank if today's Labour/Material/Supplier entries aren't tied to any one client.
+    </p>
+
+    ${block('labour', 'Labour', 'Labour type', labourOptions, pendingLabourType, engineerNote)}
+    ${block('material', 'Material', 'Material type', materialOptions, pendingMaterialType, engineerNote + materialSupplierLink)}
+    ${block('supplier', 'Supplier', 'Supplier', supplierOptions, pendingSupplierType, engineerNote)}
 
     <div class="entry-form" style="margin-bottom:20px;">
       <div style="font-family:'Zilla Slab', serif; font-weight:700; font-size:16px; margin-bottom:12px;">Engineer (personal / office expense)</div>
