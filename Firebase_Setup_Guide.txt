@@ -1,0 +1,124 @@
+SITE LEDGER — FIREBASE SETUP GUIDE (Google Login + Cloud Sync)
+=================================================================
+One-time setup, about 15-20 minutes. You'll need a free Google account.
+Nothing here costs money — Firebase's free "Spark" plan comfortably
+covers one engineer's personal ledger for years.
+
+STEP 1 — CREATE A FIREBASE PROJECT
+------------------------------------
+1. Go to https://console.firebase.google.com and sign in with Google.
+2. Click "Add project". Name it anything (e.g. "site-ledger").
+3. Disable Google Analytics for this project (not needed) and click
+   "Create project". Wait for it to finish, then "Continue".
+
+STEP 2 — ENABLE GOOGLE SIGN-IN
+------------------------------------
+1. In the left sidebar: Build -> Authentication -> "Get started".
+2. Click the "Sign-in method" tab.
+3. Click "Google" in the provider list -> toggle "Enable" -> pick a
+   support email (your own) -> Save.
+
+STEP 3 — CREATE THE DATABASE
+------------------------------------
+1. Left sidebar: Build -> Firestore Database -> "Create database".
+2. Choose a location close to you, click Next.
+3. Choose "Start in production mode" -> Create.
+4. Once created, click the "Rules" tab and replace everything with:
+
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /siteLedgers/{userId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+
+5. Click "Publish". This ensures each engineer can only ever read or
+   write their own data — nobody else's, even other people who use
+   this same app.
+
+STEP 4 — REGISTER A WEB APP & GET YOUR CONFIG
+------------------------------------
+1. Left sidebar: click the gear icon -> "Project settings".
+2. Scroll to "Your apps" -> click the "</>" (web) icon.
+3. Nickname it anything (e.g. "ledger-web") -> "Register app".
+   (Skip the Firebase Hosting checkbox for now — see Step 6.)
+4. You'll see a code block with a `firebaseConfig` object like:
+
+   const firebaseConfig = {
+     apiKey: "AIzaSy...",
+     authDomain: "site-ledger-xxxxx.firebaseapp.com",
+     projectId: "site-ledger-xxxxx",
+     storageBucket: "site-ledger-xxxxx.appspot.com",
+     messagingSenderId: "123456789",
+     appId: "1:123456789:web:abcdef123456"
+   };
+
+5. Copy those six values.
+
+STEP 5 — PASTE YOUR CONFIG INTO THE APP
+------------------------------------
+1. Open Site_Ledger_App.html in a text editor (Notepad, TextEdit,
+   VS Code — anything that edits plain text).
+2. Find this block near the top of the <script> section:
+
+   const firebaseConfig = {
+     apiKey: "YOUR_API_KEY",
+     authDomain: "YOUR_PROJECT.firebaseapp.com",
+     ...
+   };
+
+3. Replace each placeholder value with your real one from Step 4.
+4. Save the file.
+
+STEP 6 — HOST THE FILE (so Google Sign-In can work)
+------------------------------------
+Google Sign-In refuses to work on a file opened directly from your
+computer (file://) — it only works on a real website address. The
+easiest free option is GitHub Pages:
+
+1. Go to https://github.com and create a free account if you don't
+   have one.
+2. Click "+" (top right) -> "New repository". Name it e.g.
+   "site-ledger" -> tick "Public" -> Create repository.
+3. Click "Add file" -> "Upload files" -> drag in your edited
+   Site_Ledger_App.html -> rename it to "index.html" during upload
+   (or after) -> Commit changes.
+4. Go to the repository's Settings tab -> "Pages" (left sidebar).
+5. Under "Branch", choose "main" -> Save.
+6. After a minute, refresh the page — you'll see a URL like:
+   https://YOUR-USERNAME.github.io/site-ledger/
+   That's your app's permanent address. Bookmark it, and on your
+   phone use "Add to Home Screen" so it opens like an app icon.
+
+STEP 7 — AUTHORIZE YOUR NEW DOMAIN IN FIREBASE
+------------------------------------
+1. Back in Firebase Console -> Authentication -> Settings tab ->
+   "Authorized domains".
+2. Click "Add domain" and paste in YOUR-USERNAME.github.io
+   (just the domain, no https:// and no trailing path).
+3. Save.
+
+STEP 8 — TEST IT
+------------------------------------
+1. Open your GitHub Pages URL.
+2. Click "Sign in with Google", choose your account.
+3. Add a client, log an entry. Then open the same URL on your phone
+   and sign in with the same Google account — the same data should
+   appear within a second or two.
+
+TROUBLESHOOTING
+------------------------------------
+- "This app is blocked" / "unauthorized domain" during sign-in ->
+  you missed Step 7, or typed the domain wrong (no https://).
+- Sign-in popup closes immediately with an error -> check the
+  browser isn't blocking popups for that site.
+- Data doesn't appear on a second device -> confirm you're signed in
+  with the SAME Google account on both, and that both devices have
+  internet access at least once after making a change.
+- "Missing or insufficient permissions" -> the Firestore Rules from
+  Step 3 weren't published, or don't match exactly — re-check them.
+- Want to make changes later? Just edit the HTML file and re-upload
+  it to the same GitHub repository (Add file -> Upload files again,
+  it'll overwrite index.html).
