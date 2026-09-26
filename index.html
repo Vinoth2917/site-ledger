@@ -235,6 +235,182 @@
     main.content{ padding:18px; }
     .stats{ gap:14px; }
   }
+
+
+  /* ==========================================================
+     Excel-style workbook UI
+     ========================================================== */
+  :root{
+    --excel-green:#217346;
+    --excel-green-dark:#185C37;
+    --excel-green-light:#EAF4EE;
+    --excel-grid:#D9E2DD;
+    --excel-header:#E2EFDA;
+    --excel-selection:#C6E0B4;
+    --excel-text:#1F1F1F;
+    --excel-paper:#FFFFFF;
+    --excel-muted:#68746E;
+  }
+  body{ background:#F2F2F2; color:var(--excel-text); font-family:'IBM Plex Sans',sans-serif; }
+  header.topbar{
+    background:var(--excel-green-dark);
+    border-bottom:0;
+    padding:7px 12px;
+    min-height:44px;
+    gap:10px;
+  }
+  .brand{ gap:8px; }
+  .brand .mark{ font-family:'IBM Plex Sans',sans-serif; font-size:16px; font-weight:600; letter-spacing:0; color:#fff; }
+  .brand .sub{ font-family:'IBM Plex Sans',sans-serif; font-size:10px; color:#D9EEE2; letter-spacing:.2px; }
+  .stats{ gap:18px; }
+  .stat .label{ color:#CFE4D7; font-size:9.5px; }
+  .stat .value{ font-size:15px; }
+  .stat.credit .value{ color:#B7E0C7; }
+  .stat.debit .value{ color:#FFD0C8; }
+  .stat.balance .value{ color:#fff; }
+  .user-badge{ margin-left:8px; }
+  .user-badge .uname{ color:#fff; }
+  .user-badge button{ color:#D9EEE2; border-color:#4E8A69; padding:3px 9px; }
+  .user-badge button:hover{ background:#2C7B50; color:#fff; }
+
+  .excel-ribbon{
+    background:#fff;
+    border-bottom:1px solid #C8D2CC;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  .excel-ribbon-row{ display:flex; align-items:center; gap:2px; padding:4px 10px; flex-wrap:wrap; }
+  .excel-ribbon-tabs{ border-bottom:1px solid #D9DFDB; padding-left:10px; }
+  .excel-ribbon-tabs button{
+    background:transparent; color:#2F3B35; border:0; border-bottom:2px solid transparent;
+    border-radius:0; padding:8px 14px; font-size:12px; font-weight:500;
+  }
+  .excel-ribbon-tabs button:hover{ background:#F1F5F2; border-color:#B7C8BC; }
+  .excel-ribbon-tabs button.active{ color:var(--excel-green-dark); border-bottom-color:var(--excel-green); font-weight:600; background:#F5F8F6; }
+  .excel-tool{
+    background:#fff; color:#2F3B35; border:1px solid transparent; border-radius:3px;
+    padding:7px 10px; font-size:12px; font-weight:500; display:inline-flex; align-items:center; gap:6px;
+  }
+  .excel-tool:hover{ background:#F1F5F2; border-color:#CFD9D2; }
+  .excel-tool.primary{ background:var(--excel-green); color:#fff; border-color:var(--excel-green); }
+  .excel-tool.primary:hover{ background:var(--excel-green-dark); border-color:var(--excel-green-dark); }
+  .excel-ribbon-sep{ width:1px; height:30px; background:#D8DED9; margin:0 5px; }
+  .excel-group{ display:flex; align-items:center; gap:3px; padding-right:8px; }
+  .excel-group-title{ font-size:9px; color:#77827C; align-self:flex-end; padding:0 4px 1px; letter-spacing:.3px; text-transform:uppercase; }
+  .formula-bar{ display:flex; align-items:center; gap:6px; padding:5px 10px; background:#F6F8F6; border-top:1px solid #EFF2F0; }
+  .name-box{
+    width:190px; min-height:29px; display:flex; align-items:center; padding:5px 8px;
+    border:1px solid #BFC9C3; background:#fff; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#3B4740;
+  }
+  .fx-box{ width:34px; min-height:29px; display:flex; align-items:center; justify-content:center; border:1px solid #BFC9C3; background:#fff; color:var(--excel-green-dark); font-weight:700; }
+  .formula-value{ flex:1; min-height:29px; border:1px solid #BFC9C3; background:#fff; display:flex; align-items:center; padding:5px 9px; font-size:12px; color:#3A433E; }
+
+  .shell{ display:flex; min-height:calc(100vh - 170px); background:#F2F2F2; }
+  nav.sidebar{
+    width:230px; background:#F7F8F7; border-right:1px solid #CBD5CF; padding:0; box-shadow:none;
+  }
+  .workbook-pane-title{
+    height:34px; display:flex; align-items:center; justify-content:space-between; padding:0 12px;
+    background:#EFF3F0; border-bottom:1px solid #D5DDD8; font-size:10px; font-weight:700; color:#4B5A52; letter-spacing:.5px;
+  }
+  .workbook-pane-title span:last-child{ font-weight:400; color:#7C8781; letter-spacing:0; }
+  .nav-top{ padding:6px 0; margin:0; border-bottom:1px solid #D8DED9; }
+  .nav-item{ padding:7px 11px; font-size:12.5px; border-left:3px solid transparent; }
+  .nav-item:hover{ background:#EDF3EF; }
+  .nav-item.active{ border-left-color:var(--excel-green); background:var(--excel-green-light); font-weight:600; color:var(--excel-green-dark); }
+  .section-group{ border-bottom:1px solid #D8DED9; }
+  .section-group > summary.section-head{ padding:8px 12px; font-size:10.5px; background:#F0F3F1; color:#4E5B54; }
+  .section-group > summary.section-head:hover{ background:#E8EEE9; }
+  .section-body .nav-item{ padding-left:25px; font-size:12px; }
+  .add-account-row{ padding:6px 12px 8px 25px; }
+  .add-account-row input{ border:1px solid #C6D0CA; background:#fff; font-size:11.5px; }
+  .add-account-row button{ background:var(--excel-green); border-color:var(--excel-green); }
+  .add-account-row button:hover{ background:var(--excel-green-dark); }
+  main.content{
+    flex:1; width:100%; max-width:none; min-width:0; padding:16px 18px 30px; overflow:auto;
+    background-color:#fff;
+    background-image:linear-gradient(to right, rgba(226,231,227,.65) 1px, transparent 1px),linear-gradient(to bottom, rgba(226,231,227,.65) 1px, transparent 1px);
+    background-size:24px 24px;
+  }
+  #mainContent > *{ max-width:1420px; }
+  h1.page-title, .page-header{
+    font-family:'IBM Plex Sans',sans-serif; font-size:19px; font-weight:600; color:#26332C;
+    border-bottom:1px solid #8FA59A; padding:0 0 8px; margin:0 0 14px; background:rgba(255,255,255,.93);
+  }
+  .page-header h1{ font-family:'IBM Plex Sans',sans-serif; font-size:19px; font-weight:600; }
+  .page-stats{ gap:14px; margin-bottom:14px; }
+  .page-stat{ background:#fff; border:1px solid #D1D9D4; padding:7px 10px; min-width:130px; }
+  .page-stat .label{ font-size:9px; }
+  .page-stat .value{ font-size:17px; }
+  .summary-actions{ gap:5px; margin-bottom:12px; }
+  button{ border-radius:2px; background:var(--excel-green); border-color:var(--excel-green); font-size:12px; padding:6px 10px; }
+  button:hover{ background:var(--excel-green-dark); border-color:var(--excel-green-dark); }
+  button.ghost{ background:#fff; color:#2F3B35; border-color:#BFC9C3; }
+  button.ghost:hover{ background:#EDF3EF; border-color:#9EB2A4; }
+  input, select{ border-radius:1px; border-color:#BFC9C3; font-size:12px; padding:6px 8px; }
+  input:focus, select:focus{ outline:1px solid var(--excel-green); outline-offset:0; border-color:var(--excel-green); }
+
+  .entry-form{
+    max-width:none; width:100%; background:#fff; border:1px solid #CBD5CF; border-radius:0; padding:0; margin-bottom:10px;
+    box-shadow:0 1px 1px rgba(0,0,0,.02);
+  }
+  .entry-form > div:first-child{
+    background:#E2EFDA !important; border-bottom:1px solid #B7C8A7; padding:7px 10px !important;
+    color:#2E4A36; font-family:'IBM Plex Sans',sans-serif !important; font-size:12px !important; font-weight:600 !important;
+  }
+  .entry-form .row{ padding:9px 10px; margin-bottom:0; gap:8px; }
+  .entry-form .field label{ font-size:9.5px; text-transform:uppercase; color:#65736B; letter-spacing:.4px; }
+  .entry-form .field input, .entry-form .field select{ background:#fff; min-height:30px; }
+  .link-box{ background:#F8FBF9; border:1px dashed #B7C8BD; border-radius:0; margin:4px 10px 10px; }
+  .type-toggle{ border-radius:1px; }
+  .type-toggle button{ background:#fff; color:#37443D; padding:6px 11px; }
+  .type-toggle button.active.credit{ background:#2B6F62; }
+  .type-toggle button.active.debit{ background:#8B3A2E; }
+
+  .table-wrap{ width:100%; overflow:auto; border:1px solid #C9D3CD; background:#fff; }
+  table.ledger{ width:100%; min-width:760px; border-collapse:separate; border-spacing:0; font-size:12px; background:#fff; }
+  table.ledger thead th{
+    position:sticky; top:0; z-index:2; background:#EAF0EC; color:#405148; border-right:1px solid #CBD5CF; border-bottom:1px solid #AEBBB3;
+    padding:6px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.35px;
+  }
+  table.ledger tbody td{ padding:6px 8px; border-right:1px solid #E0E6E2; border-bottom:1px solid #E0E6E2; vertical-align:top; background:#fff; }
+  table.ledger tbody tr:nth-child(even) td{ background:#FBFCFB; }
+  table.ledger tbody tr:hover td{ background:#F0F7F2; }
+  table.ledger td:last-child, table.ledger th:last-child{ border-right:0; }
+  tr.grand-total td{ background:#F2F6F3 !important; border-top:2px solid #90A99A; font-weight:700; }
+  .pill{ border-radius:2px; padding:2px 6px; font-size:10px; }
+  .empty-state{ border:1px dashed #BFC9C3; border-radius:0; padding:30px 20px; background:#fff; }
+
+  .sheet-tabs{
+    display:flex; align-items:flex-end; gap:1px; background:#E7EBE8; border-top:1px solid #C8D1CB; padding:4px 8px 0; overflow:auto;
+  }
+  .sheet-tab{
+    white-space:nowrap; padding:7px 13px 8px; background:#DDE4DF; color:#4A5B51; border:1px solid #C3CEC7; border-bottom:0;
+    font-size:11px; cursor:pointer; border-radius:3px 3px 0 0;
+  }
+  .sheet-tab:hover{ background:#EEF3EF; }
+  .sheet-tab.active{ background:#fff; color:#1F3E2A; font-weight:600; border-top:2px solid var(--excel-green); padding-top:6px; }
+  .sheet-tab .dot{ display:inline-block; width:5px; height:5px; border-radius:50%; background:#7C8A82; margin-right:5px; vertical-align:middle; }
+  .sheet-tab.active .dot{ background:var(--excel-green); }
+  .bottom-statusbar{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:#F0F3F1; border-top:1px solid #CBD5CF; padding:4px 9px; font-size:10px; color:#65736B; }
+  .status-left,.status-right{ display:flex; align-items:center; gap:12px; }
+
+  .profile-form{ max-width:560px; border-radius:0; border-color:#CBD5CF; background:#fff; }
+  .profile-form input{ min-height:31px; }
+  h2.section-title{ font-family:'IBM Plex Sans',sans-serif; font-size:14px; font-weight:600; color:#324139; padding-bottom:5px; border-bottom:1px solid #CBD5CF; }
+
+  @media (max-width: 900px){
+    .stats{ display:none; }
+    nav.sidebar{ width:210px; }
+    .name-box{ width:135px; }
+  }
+  @media (max-width: 780px){
+    .shell{ flex-direction:column; }
+    nav.sidebar{ width:100%; max-height:280px; }
+    main.content{ padding:12px; background-size:20px 20px; }
+    .excel-ribbon-tabs button{ padding:7px 9px; }
+    .excel-tool{ padding:6px 8px; }
+  }
+
 </style>
 </head>
 <body>
@@ -276,9 +452,45 @@
   </div>
 </header>
 
+<div class="excel-ribbon">
+  <div class="excel-ribbon-row excel-ribbon-tabs">
+    <button id="ribbonEntry" class="active" onclick="goTo('entry')">Daily Entry</button>
+    <button id="ribbonSummary" onclick="goTo('summary')">Summary</button>
+    <button id="ribbonAll" onclick="goTo('all')">All Entries</button>
+    <button id="ribbonProfile" onclick="goTo('profile')">Profile</button>
+  </div>
+  <div class="excel-ribbon-row">
+    <div class="excel-group">
+      <button class="excel-tool primary" onclick="goTo('entry')">＋ New Entry</button>
+    </div>
+    <div class="excel-ribbon-sep"></div>
+    <div class="excel-group">
+      <button class="excel-tool" onclick="exportExcel()">▣ Export Excel</button>
+      <button class="excel-tool" onclick="exportCurrentPdf()">▤ Export PDF</button>
+    </div>
+    <div class="excel-ribbon-sep"></div>
+    <div class="excel-group">
+      <button class="excel-tool" onclick="goTo('summary')">⌂ Home</button>
+      <button class="excel-tool" onclick="goTo('all')">☷ Ledger</button>
+    </div>
+    <div class="excel-group-title">Workbook</div>
+  </div>
+  <div class="formula-bar">
+    <div class="name-box" id="excelNameBox">A1</div>
+    <div class="fx-box">fx</div>
+    <div class="formula-value" id="excelFormulaValue">Site Ledger</div>
+  </div>
+</div>
+
 <div class="shell">
   <nav class="sidebar" id="sidebar"><!-- rendered by JS --></nav>
   <main class="content" id="mainContent"><!-- rendered by JS --></main>
+</div>
+
+<div id="sheetTabs" class="sheet-tabs"></div>
+<div class="bottom-statusbar">
+  <div class="status-left"><span id="excelStatusView">Ready</span><span id="excelStatusFilter">All dates</span></div>
+  <div class="status-right"><span>Site Ledger Workbook</span><span>Excel-style view</span></div>
 </div>
 
 <div id="printArea"></div>
@@ -1022,6 +1234,7 @@ function render(){
   document.getElementById('statBalance').textContent = fmt(overall.balance);
 
   renderSidebar();
+  renderExcelChrome();
   const v = parseView(activeView);
   if(v.kind === 'entry') renderDailyEntry();
   else if(v.kind === 'summary') renderSummary();
@@ -1030,13 +1243,64 @@ function render(){
   else renderAccountPage(v.section, v.accountId, v.subLedger);
 }
 
+
+function renderExcelChrome(){
+  const v = parseView(activeView);
+  const labels = {
+    entry:'Daily Entry', summary:'Summary', all:'All Entries', profile:'Profile'
+  };
+  let title = labels[v.kind] || '';
+  if(v.kind === 'account'){
+    title = v.section === 'engineer' ? 'Engineer' : (v.section === 'client' ? clientFlatName(v.accountId, v.subLedger || 'project') : accountName(v.section, v.accountId));
+  }
+  const nameBox = document.getElementById('excelNameBox');
+  const formulaValue = document.getElementById('excelFormulaValue');
+  const statusView = document.getElementById('excelStatusView');
+  const statusFilter = document.getElementById('excelStatusFilter');
+  if(nameBox) nameBox.textContent = title || 'Site Ledger';
+  if(formulaValue) formulaValue.textContent = v.kind === 'account' ? ('Account: ' + title) : title;
+  if(statusView) statusView.textContent = 'Ready · ' + title;
+  if(statusFilter) statusFilter.textContent = dateFilter === 'all' ? 'All dates' : ('Filter: ' + dateFilter);
+
+  ['ribbonEntry','ribbonSummary','ribbonAll','ribbonProfile'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.classList.remove('active');
+  });
+  const ribbonMap = {entry:'ribbonEntry', summary:'ribbonSummary', all:'ribbonAll', profile:'ribbonProfile'};
+  const activeRibbon = ribbonMap[v.kind];
+  if(activeRibbon){ const el = document.getElementById(activeRibbon); if(el) el.classList.add('active'); }
+
+  const tabs = document.getElementById('sheetTabs');
+  if(!tabs) return;
+  const items = [
+    {view:'entry', label:'Daily Entry'},
+    {view:'summary', label:'Summary'},
+    {view:'all', label:'All Entries'},
+    {view:'profile', label:'Profile'}
+  ];
+  if(v.kind === 'account'){
+    items.push({view:activeView, label:title});
+  }
+  tabs.innerHTML = items.map(item => `<button class="sheet-tab ${item.view===activeView?'active':''}" onclick="goTo('${escapeJs(item.view)}')"><span class="dot"></span>${escapeHtml(item.label)}</button>`).join('');
+}
+
+function exportCurrentPdf(){
+  const v = parseView(activeView);
+  if(v.kind === 'summary') return printSummaryReport();
+  if(v.kind === 'all') return printReport('all');
+  if(v.kind === 'profile') return printSummaryReport();
+  if(v.kind === 'account') return printAccountReport(v.section, v.accountId, v.subLedger);
+  return printSummaryReport();
+}
+
 /* ---------------- Sidebar ---------------- */
 
 function renderSidebar(){
   const v = parseView(activeView);
   const sb = document.getElementById('sidebar');
 
-  let html = `<div class="nav-top">
+  let html = `<div class="workbook-pane-title"><span>WORKBOOK</span><span>${currentUser ? escapeHtml(currentUser.displayName || currentUser.email || 'Ledger') : 'Ledger'}</span></div>
+  <div class="nav-top">
     <div class="nav-item ${activeView==='entry'?'active':''}" onclick="goTo('entry')">🖊 &nbsp;Daily Entry</div>
     <div class="nav-item ${activeView==='summary'?'active':''}" onclick="goTo('summary')">📊 &nbsp;Summary</div>
     <div class="nav-item ${activeView==='all'?'active':''}" onclick="goTo('all')">📋 &nbsp;All Entries</div>
@@ -1163,7 +1427,7 @@ function renderDailyEntry(){
     </div>`;
 
   document.getElementById('mainContent').innerHTML = `
-    <h1 class="page-title">Daily Entry</h1>
+    <h1 class="page-title">Daily Entry <span style="font-size:11px; font-weight:400; color:#6A766F; margin-left:8px;">Worksheet</span></h1>
     <div class="field" style="margin-bottom:20px;">
       <label>Date (applies to every section below)</label>
       <input type="date" id="de_date" value="${dateVal || todayStr()}" style="max-width:200px;">
