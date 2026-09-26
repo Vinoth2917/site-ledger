@@ -408,13 +408,42 @@
   .all-entry-date-body{ padding:8px; background:#fff; }
   .all-entry-date-body .table-wrap{ border:0; }
   .all-entry-date-empty{ padding:18px 12px; border:1px dashed #C7D1CB; color:#738078; font-size:11.5px; background:#FBFCFB; }
+  .account-date-groups{ display:flex; flex-direction:column; gap:8px; }
+  details.account-date-group{ border:1px solid #C7D1CB; background:#fff; }
+  details.account-date-group > summary{
+    list-style:none; display:flex; align-items:center; gap:8px; min-height:40px;
+    padding:6px 9px; cursor:pointer; user-select:none; background:#EAF0EC;
+    border-bottom:1px solid #C7D1CB;
+  }
+  details.account-date-group > summary::-webkit-details-marker{ display:none; }
+  details.account-date-group:not([open]) > summary{ border-bottom:0; }
+  details.account-date-group > summary:hover{ background:#E2ECE6; }
+  .account-date-caret{ width:16px; font-size:11px; color:#66756C; transition:transform .15s; }
+  details.account-date-group[open] .account-date-caret{ transform:rotate(90deg); }
+  .account-date-title{ font-weight:700; font-size:12px; color:#2E4137; letter-spacing:.15px; }
+  .account-date-meta{ font-size:10.5px; color:#6B776F; margin-left:4px; }
+  .account-date-totals{ margin-left:auto; display:flex; align-items:center; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:600; }
+  .account-date-credit{ color:var(--credit); }
+  .account-date-debit{ color:var(--debit); }
+  .account-date-net-credit{ color:var(--credit); }
+  .account-date-net-debit{ color:var(--debit); }
+  .account-date-net-zero{ color:var(--ink); }
+  .account-date-actions{ display:flex; gap:4px; margin-left:8px; }
+  .account-date-actions button{ padding:4px 8px; font-size:10.5px; }
+  .account-date-body{ padding:8px; background:#fff; }
+  .account-date-body .table-wrap{ border:0; }
+  .account-date-empty{ padding:18px 12px; border:1px dashed #C7D1CB; color:#738078; font-size:11.5px; background:#FBFCFB; }
   @media (max-width: 900px){
     .all-entry-date-totals{ gap:6px; }
+    .account-date-totals{ gap:6px; }
   }
   @media (max-width: 700px){
     details.all-entry-date > summary{ flex-wrap:wrap; }
     .all-entry-date-totals{ width:100%; margin-left:24px; justify-content:flex-start; flex-wrap:wrap; }
     .all-entry-date-actions{ margin-left:auto; }
+    details.account-date-group > summary{ flex-wrap:wrap; }
+    .account-date-totals{ width:100%; margin-left:24px; justify-content:flex-start; flex-wrap:wrap; }
+    .account-date-actions{ margin-left:auto; }
   }
 
   .sheet-tabs{
@@ -702,6 +731,7 @@ let state = { accounts: defaultAccounts(), transactions: [], profile: defaultPro
 let loaded = false;
 let activeView = 'entry'; // 'entry' | 'summary' | 'all' | 'profile' | 'section:accountId:subLedger'
 let allEntriesDateExpanded = {};
+let accountDateExpanded = {};
 let expandedSections = { labour:false, material:false, supplier:false, client:true };
 let pendingSection = 'client';
 let presetAccount = null; // {section, accountId, subLedger} set when jumping from an account page to the entry form
@@ -1079,6 +1109,44 @@ function totalsFor(section, accountId, subLedger){
 
 function filteredTransactions(tx, filter){
   return filter === 'all' ? tx.slice() : tx.filter(t => t.date === filter);
+}
+
+function fmtSigned(n){
+  return n < 0 ? '-₹' + Math.abs(Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(n);
+}
+
+function netDisplay(totals){
+  if(totals.balance > 0) return { label:'Net Credit', value:fmt(totals.balance), className:'pos' };
+  if(totals.balance < 0) return { label:'Net Debit', value:fmt(Math.abs(totals.balance)), className:'neg' };
+  return { label:'Net', value:fmt(0), className:'' };
+}
+
+// Returns the closing balance after all transactions dated on or before `date`.
+// Daily Credit/Debit figures remain the totals for that date; the closing
+// balance carries forward the previous dates, which is what the date-group
+// header should show as its "Net balance".
+function totalsThroughDate(tx, date){
+  return totalsFromTransactions(tx.filter(t => t.date <= date));
+}
+
+function closingBalanceDisplay(balance){
+  return {
+    label:'Net balance',
+    value:fmtSigned(balance),
+    className: balance > 0 ? 'pos' : (balance < 0 ? 'neg' : '')
+  };
+}
+
+function dateGroupKey(prefix, section, accountId, subLedger, date){
+  return [prefix, section || '', accountId || '', subLedger || '', date].join('|');
+}
+
+function setAccountDatesExpanded(section, accountId, subLedger, open){
+  const tx = filteredTransactions(txFor(section, accountId, subLedger), dateFilter);
+  [...new Set(tx.map(t => t.date))].forEach(date => {
+    accountDateExpanded[dateGroupKey('account', section, accountId, subLedger, date)] = open;
+  });
+  renderAccountPage(section, accountId, subLedger);
 }
 
 function overallTotals(){
@@ -1509,84 +1577,99 @@ function renderAccountPage(section, accountId, subLedger){
   const showForClient = (section === 'labour' || section === 'material' || section === 'supplier');
   const showSource = (section === 'engineer');
   const isFiltered = dateFilter !== 'all';
+  const balanceDisplay = netDisplay(displayTotals);
 
-  // Date filter — defaults to today, dropdown of dates that have entries, plus "All"
   const uniqueDates = [...new Set(allTx.map(t => t.date))].sort().reverse();
-  const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${todayStr()})</option>`
-    + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${d}</option>`).join('')
+  const dateOptions = `<option value="${todayStr()}" ${dateFilter===todayStr()?'selected':''}>Today (${formatDisplayDate(todayStr())})</option>`
+    + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${formatDisplayDate(d)}</option>`).join('')
     + `<option value="all" ${dateFilter==='all'?'selected':''}>All dates</option>`;
 
-  let runBal = 0, rows = '';
-  let shownCount = 0;
-  if(allTx.length === 0){
-    rows = `<tr><td colspan="7"><div class="empty-state">No entries yet. Log one from the Daily Entry page.</div></td></tr>`;
-  } else {
-    visibleTx.forEach(t => {
+  const dates = [...new Set(visibleTx.map(t => t.date))].sort().reverse();
+  const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
+
+  const renderDateGroup = date => {
+    const tx = visibleTx.filter(t => t.date === date);
+    const totals = totalsFromTransactions(tx);
+    const closingTotals = totalsThroughDate(allTx, date);
+    const net = closingBalanceDisplay(closingTotals.balance);
+    const key = dateGroupKey('account', section, accountId, subLedger, date);
+    const isOpen = accountDateExpanded[key] !== false;
+    const countLabel = `${tx.length} transaction${tx.length === 1 ? '' : 's'}`;
+    let runBal = 0;
+    const rows = tx.map(t => {
       runBal += (t.type === 'Credit' ? t.amount : -t.amount);
-      shownCount++;
       const linkedTag = t.auto
         ? `<span class="link-tag" title="Auto-created from a linked entry">↳ linked</span>`
         : (t.linkGroupId && state.transactions.some(o => o.linkGroupId === t.linkGroupId && o.id !== t.id)
           ? `<span class="link-tag" title="Linked to another ledger">🔗 linked to others</span>` : '');
       const forClientCell = showForClient ? `<td>${escapeHtml(linkedClientNameFor(t) || '—')}</td>` : '';
       const sourceCell = showSource ? `<td>${escapeHtml(primarySiblingLabelFor(t) || 'Direct entry')}</td>` : '';
-      rows += `<tr>
-        <td class="date">${t.date}</td>
+      return `<tr>
+        <td class="date">${escapeHtml(t.date)}</td>
         <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span>${linkedTag}</td>
         <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
         ${forClientCell}${sourceCell}
         <td>${escapeHtml(t.notes || '')}</td>
-        <td class="num">${fmt(runBal)}</td>
-        <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${t.id}')">&times;</button></td>
+        <td class="num">${fmtSigned(runBal)}</td>
+        <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${escapeJs(t.id)}')">&times;</button></td>
       </tr>`;
-    });
-    if(shownCount === 0){
-      rows = `<tr><td colspan="7"><div class="empty-state">No entries on this date. Try "All dates", or log one from the Daily Entry page.</div></td></tr>`;
-    }
-  }
+    }).join('');
+    return `<details class="account-date-group" ${isOpen ? 'open' : ''} ontoggle="accountDateExpanded['${escapeJs(key)}']=this.open;">
+      <summary>
+        <span class="account-date-caret">▶</span>
+        <span class="account-date-title">${escapeHtml(formatDisplayDate(date))}</span>
+        <span class="account-date-meta">${countLabel}</span>
+        <span class="account-date-totals">
+          <span class="account-date-credit">Credit ${fmt(totals.credit)}</span>
+          <span class="account-date-debit">Debit ${fmt(totals.debit)}</span>
+          <span class="account-date-${net.className ? net.className === 'pos' ? 'net-credit' : 'net-debit' : 'net-zero'}" title="Closing balance through this date">${net.label} ${net.value}</span>
+        </span>
+        <span class="account-date-actions" onclick="event.preventDefault(); event.stopPropagation();">
+          <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportAccountDateExcel('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}','${escapeJs(date)}')">XLSX</button>
+          <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); printAccountDateReport('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}','${escapeJs(date)}')">PDF</button>
+        </span>
+      </summary>
+      <div class="account-date-body">
+        <div class="table-wrap"><table class="ledger">
+          <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th>${extraHeader}<th>Notes</th><th class="num">Running balance</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7"><div class="account-date-empty">No entries for this date.</div></td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </details>`;
+  };
 
-  const extraHeader = showForClient ? '<th>For client</th>' : (showSource ? '<th>Spent on</th>' : '');
-  const balanceLabel = section === 'client' ? 'NET POSITION' : 'NET BALANCE';
+  const groupsHtml = dates.length
+    ? dates.map(renderDateGroup).join('')
+    : `<div class="account-date-empty">No entries ${isFiltered ? 'for the selected date.' : 'logged yet.'}</div>`;
+
   const periodNote = isFiltered && allTx.length > visibleTx.length
-    ? `Showing ${dateFilter === todayStr() ? 'today' : dateFilter}. Period totals and running balance are based only on visible entries. Current all-date balance: <strong>${fmt(allTotals.balance)}</strong>.`
-    : (isFiltered ? `Showing ${dateFilter === todayStr() ? 'today' : dateFilter}.` : 'Showing the complete ledger history.');
+    ? `Showing ${dateFilter === todayStr() ? 'today' : formatDisplayDate(dateFilter)}. Period totals are based only on the visible entries. Current all-date balance: <strong>${fmtSigned(allTotals.balance)}</strong>.`
+    : (isFiltered ? `Showing ${dateFilter === todayStr() ? 'today' : formatDisplayDate(dateFilter)}.` : 'Showing the complete ledger history.');
 
   document.getElementById('mainContent').innerHTML = `
-    <div class="page-header">
-      <h1>${escapeHtml(title)}</h1>
-    </div>
+    <div class="page-header"><h1>${escapeHtml(title)}</h1></div>
     ${subtitle ? `<div style="font-size:12px; color:var(--muted); margin-top:-14px; margin-bottom:16px;">${subtitle}</div>` : ''}
     <div class="page-stats">
       <div class="page-stat credit"><div class="label">${isFiltered ? 'PERIOD CREDIT' : 'TOTAL CREDIT'}</div><div class="value">${fmt(displayTotals.credit)}</div></div>
       <div class="page-stat debit"><div class="label">${isFiltered ? 'PERIOD DEBIT' : 'TOTAL DEBIT'}</div><div class="value">${fmt(displayTotals.debit)}</div></div>
-      <div class="page-stat balance"><div class="label">${isFiltered ? 'PERIOD NET' : balanceLabel}</div><div class="value ${displayTotals.balance>=0?'pos':'neg'}">${fmt(displayTotals.balance)}</div></div>
+      <div class="page-stat balance"><div class="label">${isFiltered ? balanceDisplay.label.toUpperCase() : (section==='client' ? 'NET POSITION' : 'NET BALANCE')}</div><div class="value ${balanceDisplay.className}">${balanceDisplay.value}</div></div>
     </div>
     <div class="period-note">${periodNote}</div>
-    <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px;">
-      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:480px;">
-        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">${isFiltered ? 'PERIOD CREDIT VS DEBIT' : 'CREDIT VS DEBIT'}</div>
-        ${creditDebitChart(displayTotals.credit, displayTotals.debit)}
+    <div class="no-print" style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px;">
+      <div class="excel-inline-panel">
+        <div style="font-size:10.5px; color:#5C6962; font-weight:600; letter-spacing:.25px; margin-right:3px;">SHOW ENTRIES FOR</div>
+        <select onchange="setDateFilter(this.value)">${dateOptions}</select>
       </div>
-      ${(section === 'engineer' || (section === 'client' && subLedger === 'project')) ? `
-      <div style="background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; max-width:420px;">
-        <div style="font-size:11px; color:var(--muted); font-weight:600; letter-spacing:0.3px; margin-bottom:10px;">WHERE THE MONEY WENT</div>
-        ${multiSliceChart((dateFilter === 'all' ? categoryBreakdownFor(section, accountId, subLedger) : categoryBreakdownForFiltered(section, accountId, subLedger, dateFilter)), 130)}
-      </div>` : ''}
-    </div>
-    <div class="no-print" style="margin-bottom:14px;">
-      <label style="font-size:11px; color:var(--muted); letter-spacing:0.2px; margin-right:8px;">SHOW ENTRIES FOR</label>
-      <select onchange="setDateFilter(this.value)">${dateOptions}</select>
     </div>
     <div class="summary-actions no-print">
-      <button onclick="jumpToEntry('${section}','${accountId||''}','${subLedger||''}')">+ Add entry here</button>
-      <button class="ghost" onclick="exportAccountExcel('${section}','${accountId||''}','${subLedger||''}')">Export Excel (.xlsx)</button>
-      <button class="ghost" onclick="printAccountReport('${section}','${accountId||''}','${subLedger||''}')">Export PDF</button>
-      ${section !== 'engineer' ? `<button class="ghost" onclick="deleteAccount('${section}','${accountId}')" style="color:var(--debit); border-color:var(--debit);">Delete this ${SECTION_LABELS[section].toLowerCase()}</button>` : ''}
+      <button onclick="jumpToEntry('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}')">+ Add entry here</button>
+      <button class="ghost" onclick="exportAccountExcel('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}')">Export Excel (.xlsx)</button>
+      <button class="ghost" onclick="printAccountReport('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}')">Export PDF</button>
+      <button class="ghost" onclick="setAccountDatesExpanded('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}',true)">Expand all</button>
+      <button class="ghost" onclick="setAccountDatesExpanded('${escapeJs(section)}','${escapeJs(accountId||'')}','${escapeJs(subLedger||'')}',false)">Collapse all</button>
+      ${section !== 'engineer' ? `<button class="ghost" onclick="deleteAccount('${escapeJs(section)}','${escapeJs(accountId)}')" style="color:var(--debit); border-color:var(--debit);">Delete this ${SECTION_LABELS[section].toLowerCase()}</button>` : ''}
     </div>
-    <div class="table-wrap"><table class="ledger">
-      <thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th>${extraHeader}<th>Notes</th><th class="num">${isFiltered ? 'Running period balance' : 'Running balance'}</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
+    <div class="account-date-groups">${groupsHtml}</div>
   `;
 }
 
@@ -1734,11 +1817,12 @@ function exportDateExcel(date){
   const wb = XLSX.utils.book_new();
   const tx = datePrimaryTransactions(date);
   const totals = totalsFromTransactions(tx);
+  const closing = totalsThroughDate(sortTransactions(state.transactions.filter(t => !t.auto)), date);
   const rows = [
     ['Date', date],
-    ['Credit', totals.credit],
-    ['Debit', totals.debit],
-    ['Net balance', totals.balance],
+    ['Credit (date)', totals.credit],
+    ['Debit (date)', totals.debit],
+    ['Net balance (through date)', closing.balance],
     [],
     ['Date','Section','Account','Type','Amount','Notes','Also Recorded In']
   ];
@@ -1758,6 +1842,7 @@ function exportDateExcel(date){
 function printDateReport(date){
   const tx = datePrimaryTransactions(date);
   const totals = totalsFromTransactions(tx);
+  const closing = totalsThroughDate(sortTransactions(state.transactions.filter(t => !t.auto)), date);
   let rows = '';
   tx.slice().reverse().forEach(t => {
     rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(SECTION_LABELS[t.section])}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td style="font-size:11px;">${escapeHtml(siblingLabelsFor(t).join(', ') || '—')}</td></tr>`;
@@ -1766,10 +1851,62 @@ function printDateReport(date){
     <div style="display:flex; gap:24px; margin-bottom:16px; flex-wrap:wrap;">
       <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
       <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">NET</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
     </div>
     <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="7">No entries for this date.</td></tr>'}</tbody></table>`;
+  document.getElementById('printArea').innerHTML = body;
+  window.print();
+}
+
+function exportAccountDateExcel(section, accountId, subLedger, date){
+  const wb = XLSX.utils.book_new();
+  const tx = datePrimaryTransactions(date).filter(t =>
+    t.section === section &&
+    (section === 'engineer' || t.accountId === accountId) &&
+    (section !== 'client' || t.subLedger === subLedger)
+  );
+  const totals = totalsFromTransactions(tx);
+  const allAccountTx = txFor(section, accountId, subLedger);
+  const closing = totalsThroughDate(allAccountTx, date);
+  const title = section === 'engineer' ? 'Engineer' : (section === 'client' ? clientFlatName(accountId, subLedger) : accountName(section, accountId));
+  const rows = [
+    ['Account', title],
+    ['Date', date],
+    ['Credit (date)', totals.credit],
+    ['Debit (date)', totals.debit],
+    ['Net balance (through date)', closing.balance],
+    [],
+    ['Date','Type','Amount','Notes','Running Balance']
+  ];
+  let bal = 0;
+  sortTransactions(tx).forEach(t => {
+    bal += (t.type === 'Credit' ? t.amount : -t.amount);
+    rows.push([t.date, t.type, t.amount, t.notes, bal]);
+  });
+  addRowsToWorksheet(wb, rows, title + ' - ' + date);
+  XLSX.writeFile(wb, safeSheetName(title) + '_' + date + '.xlsx');
+}
+
+function printAccountDateReport(section, accountId, subLedger, date){
+  const allTx = txFor(section, accountId, subLedger);
+  const tx = allTx.filter(t => t.date === date);
+  const totals = totalsFromTransactions(tx);
+  const closing = totalsThroughDate(allTx, date);
+  const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
+  let bal = 0, rows = '';
+  sortTransactions(tx).forEach(t => {
+    bal += (t.type === 'Credit' ? t.amount : -t.amount);
+    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(t.type)}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(bal)}</td></tr>`;
+  });
+  const body = buildLetterhead('Statement — ' + title + ' — ' + formatDisplayDate(date)) + `
+    <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
+      <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">NET BALANCE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmtSigned(closing.balance)}</div></div>
+    </div>
+    <table class="ledger"><thead><tr><th class="date">Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="num">Running balance</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5">No entries for this date.</td></tr>'}</tbody></table>`;
   document.getElementById('printArea').innerHTML = body;
   window.print();
 }
@@ -1790,9 +1927,11 @@ function renderAllEntries(){
       return 0;
     });
     const totals = totalsFromTransactions(tx);
+    const closingTotals = totalsThroughDate(allPrimary, date);
+    const net = closingBalanceDisplay(closingTotals.balance);
     const isOpen = allEntriesDateExpanded[date] !== false;
     const countLabel = `${tx.length} transaction${tx.length === 1 ? '' : 's'}`;
-    const netClass = totals.balance >= 0 ? 'pos' : 'neg';
+    const netClass = net.className;
     const rows = tx.map(t => {
       const links = siblingLabelsFor(t);
       return `<tr>
@@ -1815,7 +1954,7 @@ function renderAllEntries(){
         <span class="all-entry-date-totals">
           <span class="all-entry-date-credit">Credit ${fmt(totals.credit)}</span>
           <span class="all-entry-date-debit">Debit ${fmt(totals.debit)}</span>
-          <span class="all-entry-date-net ${netClass}">Net ${fmt(totals.balance)}</span>
+          <span class="all-entry-date-net ${netClass}" title="Closing balance through this date" style="color:${netClass==='pos'?'var(--credit)':netClass==='neg'?'var(--debit)':'var(--ink)'}">${net.label} ${net.value}</span>
         </span>
         <span class="all-entry-date-actions" onclick="event.preventDefault(); event.stopPropagation();">
           <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportDateExcel('${escapeJs(date)}')">XLSX</button>
@@ -2072,10 +2211,11 @@ function printAccountReport(section, accountId, subLedger){
   const totals = totalsFromTransactions(tx);
   const title = (section === 'engineer' ? 'Engineer' : accountName(section, accountId)) + (section==='client' ? ' — ' + subLedgerLabel(subLedger) : '');
   const reportTitle = dateFilter === 'all' ? 'Statement — ' + title : 'Statement — ' + title + ' — ' + dateFilter;
+  const reportNet = netDisplay(totals);
   let bal = 0, rows = '';
   tx.forEach(t => {
     bal += (t.type === 'Credit' ? t.amount : -t.amount);
-    rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmt(bal)}</td></tr>`;
+    rows += `<tr><td class="date">${t.date}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td class="num">${fmtSigned(bal)}</td></tr>`;
   });
   const showBreakdown = (section === 'engineer' || (section === 'client' && subLedger === 'project'));
   const breakdown = showBreakdown ? (dateFilter === 'all' ? categoryBreakdownFor(section, accountId, subLedger) : categoryBreakdownForFiltered(section, accountId, subLedger, dateFilter)) : null;
@@ -2083,7 +2223,7 @@ function printAccountReport(section, accountId, subLedger){
     <div style="display:flex; gap:24px; margin-bottom:14px; flex-wrap:wrap;">
       <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL CREDIT' : 'PERIOD CREDIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
       <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'TOTAL DEBIT' : 'PERIOD DEBIT'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">${dateFilter === 'all' ? 'NET BALANCE' : 'PERIOD NET'}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
+      <div><div style="font-size:10px; color:#777;">${reportNet.label.toUpperCase()}</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${reportNet.value}</div></div>
     </div>
     <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px;">
       <div>${creditDebitChart(totals.credit, totals.debit, 100)}</div>
