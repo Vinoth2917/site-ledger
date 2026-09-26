@@ -19,7 +19,7 @@ problem completely.
 
 **Stack:** vanilla HTML/CSS/JavaScript (no framework, no build step),
 Firebase Authentication (Google Sign-In) + Firestore (database), SheetJS
-(`xlsx` library, via CDN) for Excel export. Everything lives in one file:
+(`xlsx` library, via CDN) for Excel (XLSX) export. Everything lives in one file:
 `Site_Ledger_App.html`.
 
 ## Data model
@@ -113,7 +113,7 @@ instead of ₹12,000. The fix: `overallTotals()` only sums records where
 `auto !== true`. Every individual account's own page still sums *all* its
 own records (correctly, since that page needs its full picture) — only the
 whole-business total excludes auto records. The same principle applies to
-the "All Entries" master log (`renderAllEntries`) and its CSV/print
+the "All Entries" master log (`renderAllEntries`) and its Excel/PDF
 exports: they show **one row per real transaction** (`!t.auto` only), with
 an "Also recorded in" / "linked to" column listing every other ledger it
 touched (via `siblingLabelsFor(tx)`), rather than showing 3-4 rows for one
@@ -127,10 +127,10 @@ of every date that has entries for that specific ledger, plus an "All
 dates" option. `goTo(view)` resets `dateFilter` to today whenever navigating
 to a *different* page (so each page you open defaults to "today" fresh);
 `setDateFilter(value)` just re-renders the current page with the new
-filter, without navigating. Running-balance totals are always computed
-against the *full* unfiltered transaction list first, then rows are hidden
-by date — so the running balance shown is always the true cumulative
-figure, not reset per filtered day.
+filter, without navigating. When a specific date is selected, account-page totals,
+charts, running balance, Excel (XLSX) export, and PDF report are scoped to the visible
+period. "All dates" uses the complete chronological history, and the page
+shows the current all-date balance separately when a filter is active.
 
 ## View routing
 
@@ -206,11 +206,10 @@ that isn't neutralized under `@media print`.
 - No multi-user collaboration — one Firestore document per Google account;
   two people can't share/edit the same ledger concurrently.
 - No undo beyond the linked-group delete confirmation.
-- Whole-document overwrite on every save (not incremental) — fine at this
-  data scale (a small business's manual ledger entries), would need
-  restructuring (e.g. one Firestore document per transaction) if this ever
-  needed to scale to a much larger transaction volume or multiple
-  simultaneous editors.
+- The ledger is still stored as one Firestore document, but saves now use a Firestore
+  transaction that merges local additions/deletions with concurrent remote changes.
+  A transaction-per-record schema would still be preferable for very large volumes
+  or complex multi-user collaboration.
 
 ## If extending this project
 
