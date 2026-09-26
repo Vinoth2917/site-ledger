@@ -33,7 +33,7 @@ free on GitHub Pages, backed by a free Firebase project for login + storage.
   other date, or "All dates" to see the full chronological history.
 - **Print & PDF** — every page has a Print button that produces a clean,
   letterheaded statement (business name/contact you set once in Profile).
-- **Excel/CSV export** — full workbook export (one sheet per account) at any time.
+- **Excel (.xlsx) export + PDF** — full workbook export (one sheet per account) and printable PDF reports at any time.
 - **Real login, real cloud sync** — sign in with Google, data lives in
   Firestore under your account, syncs across any device, works offline and
   catches up when back online.
