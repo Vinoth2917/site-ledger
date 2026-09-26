@@ -385,26 +385,37 @@
     background:#F0F4F1; border:1px solid #C9D3CD; border-bottom:0;
   }
   .all-entries-toolbar .filter-note{ font-size:10.5px; color:#68756D; margin-left:4px; }
-  .all-entry-sections{ display:flex; flex-direction:column; gap:8px; }
-  details.all-entry-section{ border:1px solid #C7D1CB; background:#fff; }
-  details.all-entry-section > summary{
-    list-style:none; display:flex; align-items:center; gap:8px; min-height:38px;
+  .all-entry-dates{ display:flex; flex-direction:column; gap:8px; }
+  details.all-entry-date{ border:1px solid #C7D1CB; background:#fff; }
+  details.all-entry-date > summary{
+    list-style:none; display:flex; align-items:center; gap:8px; min-height:40px;
     padding:6px 9px; cursor:pointer; user-select:none; background:#EAF0EC;
     border-bottom:1px solid #C7D1CB;
   }
-  details.all-entry-section > summary::-webkit-details-marker{ display:none; }
-  details.all-entry-section:not([open]) > summary{ border-bottom:0; }
-  details.all-entry-section > summary:hover{ background:#E2ECE6; }
-  .all-entry-caret{ width:16px; font-size:11px; color:#66756C; transition:transform .15s; }
-  details.all-entry-section[open] .all-entry-caret{ transform:rotate(90deg); }
-  .all-entry-section-title{ font-weight:700; font-size:12px; color:#2E4137; letter-spacing:.15px; }
-  .all-entry-section-meta{ font-size:10.5px; color:#6B776F; margin-left:4px; }
-  .all-entry-section-balance{ margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; }
-  .all-entry-section-actions{ display:flex; gap:4px; margin-left:8px; }
-  .all-entry-section-actions button{ padding:4px 8px; font-size:10.5px; }
-  .all-entry-section-body{ padding:8px; background:#fff; }
-  .all-entry-section-body .table-wrap{ border:0; }
-  .all-entry-section-empty{ padding:18px 12px; border:1px dashed #C7D1CB; color:#738078; font-size:11.5px; background:#FBFCFB; }
+  details.all-entry-date > summary::-webkit-details-marker{ display:none; }
+  details.all-entry-date:not([open]) > summary{ border-bottom:0; }
+  details.all-entry-date > summary:hover{ background:#E2ECE6; }
+  .all-entry-date-caret{ width:16px; font-size:11px; color:#66756C; transition:transform .15s; }
+  details.all-entry-date[open] .all-entry-date-caret{ transform:rotate(90deg); }
+  .all-entry-date-title{ font-weight:700; font-size:12px; color:#2E4137; letter-spacing:.15px; }
+  .all-entry-date-meta{ font-size:10.5px; color:#6B776F; margin-left:4px; }
+  .all-entry-date-totals{ margin-left:auto; display:flex; align-items:center; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:600; }
+  .all-entry-date-credit{ color:var(--credit); }
+  .all-entry-date-debit{ color:var(--debit); }
+  .all-entry-date-net{ color:var(--ink); }
+  .all-entry-date-actions{ display:flex; gap:4px; margin-left:8px; }
+  .all-entry-date-actions button{ padding:4px 8px; font-size:10.5px; }
+  .all-entry-date-body{ padding:8px; background:#fff; }
+  .all-entry-date-body .table-wrap{ border:0; }
+  .all-entry-date-empty{ padding:18px 12px; border:1px dashed #C7D1CB; color:#738078; font-size:11.5px; background:#FBFCFB; }
+  @media (max-width: 900px){
+    .all-entry-date-totals{ gap:6px; }
+  }
+  @media (max-width: 700px){
+    details.all-entry-date > summary{ flex-wrap:wrap; }
+    .all-entry-date-totals{ width:100%; margin-left:24px; justify-content:flex-start; flex-wrap:wrap; }
+    .all-entry-date-actions{ margin-left:auto; }
+  }
 
   .sheet-tabs{
     display:flex; align-items:flex-end; gap:1px; background:#E7EBE8; border-top:1px solid #C8D1CB; padding:4px 8px 0; overflow:auto;
@@ -690,7 +701,7 @@ function defaultProfile(){ return { name:'', business:'', phone:'', address:'' }
 let state = { accounts: defaultAccounts(), transactions: [], profile: defaultProfile() };
 let loaded = false;
 let activeView = 'entry'; // 'entry' | 'summary' | 'all' | 'profile' | 'section:accountId:subLedger'
-let allEntriesExpanded = { client:true, labour:true, material:true, supplier:true, engineer:true };
+let allEntriesDateExpanded = {};
 let expandedSections = { labour:false, material:false, supplier:false, client:true };
 let pendingSection = 'client';
 let presetAccount = null; // {section, accountId, subLedger} set when jumping from an account page to the entry form
@@ -1699,11 +1710,68 @@ function renderSummary(){
   `;
 }
 
+function formatDisplayDate(date){
+  const parts = String(date || '').split('-').map(Number);
+  if(parts.length !== 3 || !parts.every(Number.isFinite)) return String(date || '');
+  const dt = new Date(parts[0], parts[1]-1, parts[2]);
+  return dt.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+}
+
 /* ---------------- All Entries (master log) ---------------- */
 
 function setAllEntriesExpanded(open){
-  ['client','labour','material','supplier','engineer'].forEach(section => { allEntriesExpanded[section] = open; });
+  const allPrimary = sortTransactions(state.transactions.filter(t => !t.auto));
+  const dates = [...new Set(filteredTransactions(allPrimary, dateFilter).map(t => t.date))];
+  dates.forEach(date => { allEntriesDateExpanded[date] = open; });
   renderAllEntries();
+}
+
+function datePrimaryTransactions(date){
+  return sortTransactions(state.transactions.filter(t => !t.auto && t.date === date));
+}
+
+function exportDateExcel(date){
+  const wb = XLSX.utils.book_new();
+  const tx = datePrimaryTransactions(date);
+  const totals = totalsFromTransactions(tx);
+  const rows = [
+    ['Date', date],
+    ['Credit', totals.credit],
+    ['Debit', totals.debit],
+    ['Net balance', totals.balance],
+    [],
+    ['Date','Section','Account','Type','Amount','Notes','Also Recorded In']
+  ];
+  tx.forEach(t => rows.push([
+    t.date,
+    SECTION_LABELS[t.section],
+    accountLabel(t.section,t.accountId,t.subLedger),
+    t.type,
+    t.amount,
+    t.notes,
+    siblingLabelsFor(t).join('; ')
+  ]));
+  addRowsToWorksheet(wb, rows, 'Entries - ' + date);
+  XLSX.writeFile(wb, 'Site_Ledger_' + date + '.xlsx');
+}
+
+function printDateReport(date){
+  const tx = datePrimaryTransactions(date);
+  const totals = totalsFromTransactions(tx);
+  let rows = '';
+  tx.slice().reverse().forEach(t => {
+    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(SECTION_LABELS[t.section])}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td style="font-size:11px;">${escapeHtml(siblingLabelsFor(t).join(', ') || '—')}</td></tr>`;
+  });
+  const body = buildLetterhead('All Entries — ' + date) + `
+    <div style="display:flex; gap:24px; margin-bottom:16px; flex-wrap:wrap;">
+      <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
+      <div><div style="font-size:10px; color:#777;">NET</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
+    </div>
+    <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7">No entries for this date.</td></tr>'}</tbody></table>`;
+  document.getElementById('printArea').innerHTML = body;
+  window.print();
 }
 
 function renderAllEntries(){
@@ -1713,66 +1781,62 @@ function renderAllEntries(){
     + uniqueDates.filter(d => d !== todayStr()).map(d => `<option value="${d}" ${dateFilter===d?'selected':''}>${d}</option>`).join('')
     + `<option value="all" ${dateFilter==='all'?'selected':''}>All dates</option>`;
 
-  const shown = filteredTransactions(allPrimary, dateFilter).slice().reverse();
-  const sections = ['client','labour','material','supplier','engineer'];
-  const sectionByTx = {};
-  sections.forEach(section => sectionByTx[section] = []);
-  shown.forEach(t => { if(sectionByTx[t.section]) sectionByTx[t.section].push(t); });
+  const shown = filteredTransactions(allPrimary, dateFilter);
+  const dates = [...new Set(shown.map(t => t.date))].sort().reverse();
 
-  const sectionLabel = section => SECTION_LABELS[section];
-  const sectionButtons = section => `
-    <div class="all-entry-section-actions" onclick="event.preventDefault(); event.stopPropagation();">
-      <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportSectionExcel('${section}')">XLSX</button>
-      <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); printSectionReport('${section}')">PDF</button>
-    </div>`;
-
-  const renderSection = section => {
-    const tx = sectionByTx[section];
+  const renderDateGroup = date => {
+    const tx = shown.filter(t => t.date === date).sort((a,b) => {
+      if(Number.isFinite(a.createdAt) && Number.isFinite(b.createdAt) && a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+      return 0;
+    });
     const totals = totalsFromTransactions(tx);
-    const isOpen = allEntriesExpanded[section] !== false;
+    const isOpen = allEntriesDateExpanded[date] !== false;
     const countLabel = `${tx.length} transaction${tx.length === 1 ? '' : 's'}`;
-    const balanceClass = totals.balance >= 0 ? 'pos' : 'neg';
-    let body = '';
+    const netClass = totals.balance >= 0 ? 'pos' : 'neg';
+    const rows = tx.map(t => {
+      const links = siblingLabelsFor(t);
+      return `<tr>
+        <td class="date">${escapeHtml(t.date)}</td>
+        <td>${escapeHtml(SECTION_LABELS[t.section])}</td>
+        <td>${escapeHtml(accountLabel(t.section, t.accountId, t.subLedger))}</td>
+        <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span></td>
+        <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
+        <td>${escapeHtml(t.notes || '')}</td>
+        <td style="font-size:11px;color:var(--muted);">${links.length ? escapeHtml(links.join(', ')) : '—'}</td>
+        <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${escapeJs(t.id)}')">&times;</button></td>
+      </tr>`;
+    }).join('');
 
-    if(tx.length === 0){
-      body = `<div class="all-entry-section-empty">No entries ${dateFilter === 'all' ? 'logged yet' : 'for the selected date'}.</div>`;
-    }else{
-      let rows = '';
-      tx.forEach(t => {
-        const label = accountLabel(t.section, t.accountId, t.subLedger);
-        const links = siblingLabelsFor(t);
-        rows += `<tr>
-          <td class="date">${escapeHtml(t.date)}</td>
-          <td>${escapeHtml(label)}</td>
-          <td><span class="pill ${t.type.toLowerCase()}">${t.type}</span></td>
-          <td class="num" style="color:${t.type==='Credit'?'var(--credit)':'var(--debit)'}">${fmt(t.amount)}</td>
-          <td>${escapeHtml(t.notes || '')}</td>
-          <td style="font-size:11px; color:var(--muted);">${links.length ? escapeHtml(links.join(', ')) : '—'}</td>
-          <td><button class="del-btn" title="Delete" onclick="deleteTransaction('${escapeJs(t.id)}')">&times;</button></td>
-        </tr>`;
-      });
-      body = `<div class="table-wrap"><table class="ledger">
-        <thead><tr><th class="date">Date</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th><th></th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>`;
-    }
-
-    return `<details class="all-entry-section" ${isOpen ? 'open' : ''} ontoggle="allEntriesExpanded['${section}']=this.open;">
+    return `<details class="all-entry-date" ${isOpen ? 'open' : ''} ontoggle="allEntriesDateExpanded['${escapeJs(date)}']=this.open;">
       <summary>
-        <span class="all-entry-caret">▶</span>
-        <span class="all-entry-section-title">${escapeHtml(sectionLabel(section))}</span>
-        <span class="all-entry-section-meta">${countLabel}</span>
-        <span class="all-entry-section-balance ${balanceClass}">${fmt(totals.balance)}</span>
-        ${sectionButtons(section)}
+        <span class="all-entry-date-caret">▶</span>
+        <span class="all-entry-date-title">${escapeHtml(formatDisplayDate(date))}</span>
+        <span class="all-entry-date-meta">${countLabel}</span>
+        <span class="all-entry-date-totals">
+          <span class="all-entry-date-credit">Credit ${fmt(totals.credit)}</span>
+          <span class="all-entry-date-debit">Debit ${fmt(totals.debit)}</span>
+          <span class="all-entry-date-net ${netClass}">Net ${fmt(totals.balance)}</span>
+        </span>
+        <span class="all-entry-date-actions" onclick="event.preventDefault(); event.stopPropagation();">
+          <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); exportDateExcel('${escapeJs(date)}')">XLSX</button>
+          <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation(); printDateReport('${escapeJs(date)}')">PDF</button>
+        </span>
       </summary>
-      <div class="all-entry-section-body">${body}</div>
+      <div class="all-entry-date-body">
+        <div class="table-wrap"><table class="ledger">
+          <thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8"><div class="all-entry-date-empty">No entries for this date.</div></td></tr>'}</tbody>
+        </table></div>
+      </div>
     </details>`;
   };
 
-  const sectionsHTML = sections.map(renderSection).join('');
+  const groupsHtml = dates.length
+    ? dates.map(renderDateGroup).join('')
+    : `<div class="all-entry-date-empty">No entries ${dateFilter === 'all' ? 'logged yet.' : 'for the selected date.'}</div>`;
 
   document.getElementById('mainContent').innerHTML = `
-    <h1 class="page-title">All Entries — grouped by section</h1>
+    <h1 class="page-title">All Entries — grouped by date</h1>
     <div class="summary-actions">
       <button class="ghost" onclick="exportAllEntriesExcel()">Export Excel (.xlsx)</button>
       <button class="ghost" onclick="printReport('all')">Export PDF</button>
@@ -1782,10 +1846,10 @@ function renderAllEntries(){
     <div class="all-entries-toolbar no-print">
       <label style="font-size:10.5px; color:#5C6962; font-weight:600; letter-spacing:.25px;">SHOW ENTRIES FOR</label>
       <select onchange="setDateFilter(this.value)">${dateOptions}</select>
-      <span class="filter-note">The selected date filter applies to every section below. “All dates” shows the complete history.</span>
+      <span class="filter-note">Choose a date to show one date group, or choose “All dates” to display every date group.</span>
     </div>
-    <div class="all-entry-sections">
-      ${sectionsHTML}
+    <div class="all-entry-dates">
+      ${groupsHtml}
     </div>
   `;
 }
@@ -1980,57 +2044,6 @@ function printSummaryReport(){
   window.print();
 }
 
-function sectionPrimaryTransactions(section){
-  return filteredTransactions(sortTransactions(state.transactions.filter(t => !t.auto && t.section === section)), dateFilter);
-}
-
-function exportSectionExcel(section){
-  const wb = XLSX.utils.book_new();
-  const tx = sectionPrimaryTransactions(section);
-  const label = SECTION_LABELS[section];
-  const totals = totalsFromTransactions(tx);
-  const rows = [
-    ['Section', label],
-    ['Period', dateFilter === 'all' ? 'All dates' : dateFilter],
-    ['Credit', totals.credit],
-    ['Debit', totals.debit],
-    ['Net balance', totals.balance],
-    [],
-    ['Date','Account','Type','Amount','Notes','Also Recorded In']
-  ];
-  tx.slice().reverse().forEach(t => rows.push([
-    t.date,
-    accountLabel(t.section,t.accountId,t.subLedger),
-    t.type,
-    t.amount,
-    t.notes,
-    siblingLabelsFor(t).join('; ')
-  ]));
-  addRowsToWorksheet(wb, rows, label + ' - ' + (dateFilter === 'all' ? 'All dates' : dateFilter));
-  XLSX.writeFile(wb, safeSheetName('Site Ledger - ' + label) + '.xlsx');
-}
-
-function printSectionReport(section){
-  const tx = sectionPrimaryTransactions(section);
-  const totals = totalsFromTransactions(tx);
-  const label = SECTION_LABELS[section];
-  const title = dateFilter === 'all' ? label + ' — Full Ledger' : label + ' — ' + dateFilter;
-  let rows = '';
-  tx.slice().reverse().forEach(t => {
-    rows += `<tr><td class="date">${escapeHtml(t.date)}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td>${escapeHtml(t.notes||'')}</td><td style="font-size:11px;">${escapeHtml(siblingLabelsFor(t).join(', ') || '—')}</td></tr>`;
-  });
-  const body = buildLetterhead('Section Report — ' + title) + `
-    <div style="display:flex; gap:24px; margin-bottom:16px; flex-wrap:wrap;">
-      <div><div style="font-size:10px; color:#777;">CREDIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.credit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">DEBIT</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.debit)}</div></div>
-      <div><div style="font-size:10px; color:#777;">NET</div><div style="font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600;">${fmt(totals.balance)}</div></div>
-    </div>
-    <table class="ledger"><thead><tr><th class="date">Date</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th>Also recorded in</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="6">No entries for this period.</td></tr>'}</tbody></table>`;
-  document.getElementById('printArea').innerHTML = body;
-  window.print();
-}
-
 function printReport(type){
   if(type === 'all'){
     const allPrimary = state.transactions.filter(t => !t.auto).slice().sort((a,b)=> {
@@ -2044,7 +2057,7 @@ function printReport(type){
       const links = siblingLabelsFor(t).join(', ') || '—';
       rows += `<tr><td class="date">${t.date}</td><td>${escapeHtml(SECTION_LABELS[t.section])}</td><td>${escapeHtml(accountLabel(t.section,t.accountId,t.subLedger))}</td><td>${t.type}</td><td class="num">${fmt(t.amount)}</td><td style="font-size:11px;">${escapeHtml(links)}</td></tr>`;
     });
-    const title = dateFilter === 'all' ? 'All Entries — Full Ledger' : 'All Entries — ' + dateFilter;
+    const title = dateFilter === 'all' ? 'All Entries — Full Ledger' : 'All Entries — ' + formatDisplayDate(dateFilter);
     const body = buildLetterhead(title) + `
       <table class="ledger"><thead><tr><th class="date">Date</th><th>Section</th><th>Account</th><th>Type</th><th class="num">Amount</th><th>Also recorded in</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6">No entries for this period.</td></tr>'}</tbody></table>`;
@@ -2110,7 +2123,7 @@ function exportAllEntriesExcel(){
     rows.push([t.date, SECTION_LABELS[t.section], accountLabel(t.section,t.accountId,t.subLedger), t.type, t.amount, t.notes, siblingLabelsFor(t).join('; ')]);
   });
   addRowsToWorksheet(wb, rows, 'All Entries');
-  XLSX.writeFile(wb, 'Site_Ledger_All_Entries.xlsx');
+  XLSX.writeFile(wb, 'Site_Ledger_All_Entries_' + (dateFilter === 'all' ? 'All_Dates' : dateFilter) + '.xlsx');
 }
 
 function exportAccountExcel(section, accountId, subLedger){
